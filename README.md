@@ -8,6 +8,7 @@ Real-time token usage and cost tracking plugin for [OpenCode](https://opencode.a
 
 - **Real-time Toast notifications** - See token usage and cost after each AI response
 - **Session statistics** - Track cumulative usage across your entire session
+- **CLI statistics tool** - Query usage by day/week/month with breakdowns by model/agent
 - **Cost calculation** - Automatic cost estimation based on model pricing
 - **JSONL logging** - All usage data saved locally for analysis
 - **Multi-model support** - Claude, GPT, DeepSeek, Gemini, and more
@@ -27,6 +28,8 @@ Restart OpenCode and the plugin will be automatically installed.
 
 ## Usage
 
+### Toast Notifications
+
 Once installed, you'll see Toast notifications after each AI response:
 
 ```
@@ -40,6 +43,56 @@ When a session becomes idle, you'll see a summary:
 Session: 45.2K tokens
 $0.156 | 8 msgs | 5min
 ```
+
+### CLI Statistics
+
+Query your token usage from the command line:
+
+```bash
+# All-time summary
+opencode-tokens
+
+# Today's usage
+opencode-tokens today
+
+# This week's usage with model breakdown
+opencode-tokens week --by model
+
+# This month with all breakdowns
+opencode-tokens month --by all
+
+# Day-by-day breakdown
+opencode-tokens --by daily
+```
+
+Example output:
+
+```
+  Today's Usage
+  ──────────────────────────────────────────────────
+  Total Tokens:           2.81M
+    Input:                2.74M
+    Output:               72.9K
+    Reasoning:             7.1K
+  Cache Read:            12.62M
+  Total Cost:            $32.93
+  Messages:                 230
+
+  By Model
+  ─────────────────────────────────────────────────────
+  Model                Tokens        Cost    Msgs
+  ---------------  ----------  ----------  ------
+  claude-opus-4.5       2.70M      $32.93     206
+  deepseek-chat         23.4K     $0.0025       6
+  gpt-5.2               86.9K     $0.0000      18
+```
+
+Breakdown options (`--by`):
+- `model` - Group by model (e.g., claude-opus-4.5)
+- `agent` - Group by agent (e.g., sisyphus, coder)
+- `provider` - Group by provider (e.g., anthropic, openai)
+- `daily` - Show day-by-day breakdown
+- `all` - Show all breakdowns
 
 ## Log Files
 
