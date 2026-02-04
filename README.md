@@ -7,6 +7,7 @@ Real-time token usage and cost tracking plugin for [OpenCode](https://opencode.a
 ## Features
 
 - **Real-time Toast notifications** - See token usage and cost after each AI response
+- **Budget control** - Set daily/weekly/monthly spending limits with warnings
 - **Session statistics** - Track cumulative usage across your entire session
 - **CLI statistics tool** - Query usage by day/week/month with breakdowns by model/agent
 - **Cost calculation** - Automatic cost estimation based on model pricing
@@ -37,11 +38,61 @@ Once installed, you'll see Toast notifications after each AI response:
 $0.023 | Session: $0.156
 ```
 
+When budget limits are configured, you'll see warnings:
+
+```
+⚠️ Budget exceeded!
+Daily: $5.50/$5.00 (110%)
+```
+
 When a session becomes idle, you'll see a summary:
 
 ```
 Session: 45.2K tokens
 $0.156 | 8 msgs | 5min
+```
+
+### Budget Control
+
+Set spending limits to avoid unexpected costs:
+
+```bash
+# Check current budget status
+opencode-tokens budget
+```
+
+Example output:
+
+```
+  Budget Status
+  ══════════════════════════════════════════════════════════════════
+
+  🟢 Daily
+    $3.50 / $10.00  [███████░░░░░░░░░░░░░] 35%
+    Remaining: $6.50
+
+  🟡 Weekly
+    $42.00 / $50.00  [████████████████░░░░] 84%
+    Remaining: $8.00
+
+  🟢 Monthly
+    $120.00 / $200.00  [████████████░░░░░░░░] 60%
+    Remaining: $80.00
+
+  Legend: 🟢 OK  🟡 Warning (>80%)  🔴 Exceeded
+```
+
+Configure budget in `~/.config/opencode/token-tracker.json`:
+
+```json
+{
+  "budget": {
+    "daily": 10,      // $10 per day
+    "weekly": 50,     // $50 per week
+    "monthly": 200,   // $200 per month
+    "warnAt": 0.8     // Warn at 80% usage
+  }
+}
 ```
 
 ### CLI Statistics
@@ -97,6 +148,9 @@ Breakdown options (`--by`):
 ### Pricing & Config Commands
 
 ```bash
+# Check budget status
+opencode-tokens budget
+
 # Show built-in pricing table
 opencode-tokens pricing
 
@@ -179,9 +233,29 @@ Create a config file at `~/.config/opencode/token-tracker.json`:
     "enabled": true,
     "duration": 3000,
     "showOnIdle": true
+  },
+  "budget": {
+    "daily": 10,
+    "weekly": 50,
+    "monthly": 200,
+    "warnAt": 0.8
   }
 }
 ```
+
+### Budget Settings
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `daily` | number | - | Maximum daily spend in USD |
+| `weekly` | number | - | Maximum weekly spend in USD |
+| `monthly` | number | - | Maximum monthly spend in USD |
+| `warnAt` | number | `0.8` | Warning threshold (0-1), e.g., 0.8 = warn at 80% |
+
+When you exceed a budget limit:
+- Toast notifications change to warning/error style
+- Use `opencode-tokens budget` to check detailed status
+- Budgets reset at midnight (daily), Monday (weekly), or 1st of month (monthly)
 
 ### Pricing Fields Explained
 

@@ -25,10 +25,18 @@ interface ToastConfig {
   showOnIdle: boolean
 }
 
+interface BudgetConfig {
+  daily?: number      // Daily budget in USD
+  weekly?: number     // Weekly budget in USD
+  monthly?: number    // Monthly budget in USD
+  warnAt: number      // Percentage (0-1) at which to start warning (default: 0.8)
+}
+
 interface Config {
   providers: Record<string, ModelPricing>
   models: Record<string, ModelPricing>
   toast: ToastConfig
+  budget: BudgetConfig
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -38,6 +46,9 @@ const DEFAULT_CONFIG: Config = {
     enabled: true,
     duration: 3000,
     showOnIdle: true,
+  },
+  budget: {
+    warnAt: 0.8,
   },
 }
 
@@ -120,6 +131,7 @@ function loadConfig(): Config {
         providers: { ...DEFAULT_CONFIG.providers, ...userConfig.providers },
         models: { ...DEFAULT_CONFIG.models, ...userConfig.models },
         toast: { ...DEFAULT_CONFIG.toast, ...userConfig.toast },
+        budget: { ...DEFAULT_CONFIG.budget, ...userConfig.budget },
       }
     }
   } catch (e) {
@@ -269,6 +281,126 @@ function logJson(data: Record<string, unknown>) {
 }
 
 // ============================================================================
+// Budget Tracking
+// ============================================================================
+
+interface BudgetStatus {
+  period: "daily" | "weekly" | "monthly"
+  spent: number
+  limit: number
+  percentage: number
+  exceeded: boolean
+  warning: boolean
+}
+
+function getStartOfDay(date: Date = new Date()): number {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+function getStartOfWeek(date: Date = new Date()): number {
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1) // Monday as first day
+  d.setDate(diff)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+function getStartOfMonth(date: Date = new Date()): number {
+  const d = new Date(date)
+  d.setDate(1)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+function loadEntriesSince(since: number): Array<{ cost?: number; _ts: number }> {
+  if (!existsSync(LOG_FILE)) return []
+  
+  try {
+    const content = readFileSync(LOG_FILE, "utf-8")
+    const lines = content.trim().split("\n").filter(Boolean)
+    const entries: Array<{ cost?: number; _ts: number }> = []
+    
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line)
+        if (entry.type === "tokens" && entry._ts >= since && entry.cost) {
+          entries.push(entry)
+        }
+      } catch {}
+    }
+    return entries
+  } catch {
+    return []
+  }
+}
+
+function calculateSpentSince(since: number): number {
+  const entries = loadEntriesSince(since)
+  return entries.reduce((sum, e) => sum + (e.cost ?? 0), 0)
+}
+
+function checkBudgetStatus(): BudgetStatus | null {
+  const budget = config.budget
+  if (!budget.daily && !budget.weekly && !budget.monthly) {
+    return null
+  }
+  
+  const warnAt = budget.warnAt ?? 0.8
+  const now = new Date()
+  
+  // Check in order: daily -> weekly -> monthly (most restrictive first)
+  if (budget.daily) {
+    const spent = calculateSpentSince(getStartOfDay(now))
+    const percentage = spent / budget.daily
+    return {
+      period: "daily",
+      spent,
+      limit: budget.daily,
+      percentage,
+      exceeded: percentage >= 1,
+      warning: percentage >= warnAt && percentage < 1,
+    }
+  }
+  
+  if (budget.weekly) {
+    const spent = calculateSpentSince(getStartOfWeek(now))
+    const percentage = spent / budget.weekly
+    return {
+      period: "weekly",
+      spent,
+      limit: budget.weekly,
+      percentage,
+      exceeded: percentage >= 1,
+      warning: percentage >= warnAt && percentage < 1,
+    }
+  }
+  
+  if (budget.monthly) {
+    const spent = calculateSpentSince(getStartOfMonth(now))
+    const percentage = spent / budget.monthly
+    return {
+      period: "monthly",
+      spent,
+      limit: budget.monthly,
+      percentage,
+      exceeded: percentage >= 1,
+      warning: percentage >= warnAt && percentage < 1,
+    }
+  }
+  
+  return null
+}
+
+function formatBudgetMessage(status: BudgetStatus): string {
+  const pct = Math.round(status.percentage * 100)
+  const periodLabel = status.period.charAt(0).toUpperCase() + status.period.slice(1)
+  return `${periodLabel}: ${formatCost(status.spent)}/${formatCost(status.limit)} (${pct}%)`
+}
+
+// ============================================================================
 // Plugin
 // ============================================================================
 
@@ -354,13 +486,33 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
           // Show toast for this message
           if (config.toast.enabled) {
             const totalTokens = input + output
+            
+            // Check budget status
+            const budgetStatus = checkBudgetStatus()
+            
+            let title = `${formatTokens(totalTokens)} tokens`
+            let message = `${formatCost(cost)} | Session: ${formatCost(stats.totalCost)}`
+            let variant: "info" | "warning" | "error" = "info"
+            
+            // Add budget warning/alert if applicable
+            if (budgetStatus) {
+              if (budgetStatus.exceeded) {
+                title = `⚠️ Budget exceeded!`
+                message = formatBudgetMessage(budgetStatus)
+                variant = "error"
+              } else if (budgetStatus.warning) {
+                message = `${formatCost(cost)} | ${formatBudgetMessage(budgetStatus)}`
+                variant = "warning"
+              }
+            }
+            
             try {
               await client.tui.showToast({
                 body: {
-                  title: `${formatTokens(totalTokens)} tokens`,
-                  message: `${formatCost(cost)} | Session: ${formatCost(stats.totalCost)}`,
-                  variant: "info",
-                  duration: config.toast.duration,
+                  title,
+                  message,
+                  variant,
+                  duration: budgetStatus?.exceeded ? 5000 : config.toast.duration,
                 },
               })
             } catch {}

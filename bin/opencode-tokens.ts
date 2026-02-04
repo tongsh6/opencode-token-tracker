@@ -106,6 +106,12 @@ interface Config {
     duration?: number
     showOnIdle?: boolean
   }
+  budget?: {
+    daily?: number
+    weekly?: number
+    monthly?: number
+    warnAt?: number
+  }
 }
 
 // ============================================================================
@@ -526,6 +532,12 @@ function cmdConfig(action?: string) {
         duration: 3000,
         showOnIdle: true,
       },
+      budget: {
+        daily: 5,
+        weekly: 25,
+        monthly: 100,
+        warnAt: 0.8,
+      },
     }
     
     // Add providers as comments/examples
@@ -543,11 +555,11 @@ function cmdConfig(action?: string) {
     
     // Print explanation first
     console.log(`
-  Pricing Configuration Guide
+  Configuration Guide
   ══════════════════════════════════════════════════════════════════
 
-  All prices are in USD per 1 MILLION tokens.
-
+  PRICING (prices in USD per 1 MILLION tokens)
+  ────────────────────────────────────────────────────────────────
   Fields:
     input      Cost for input/prompt tokens sent to the model
     output     Cost for output/completion tokens from the model
@@ -559,7 +571,7 @@ function cmdConfig(action?: string) {
     { "input": 0, "output": 0 }       = Free (subscription or local model)
 
   Common scenarios:
-    - GitHub Copilot, Cursor, etc.   → Set to 0 (subscription-based)
+    - GitHub Copilot, Cursor, etc.   → Set provider to { input: 0, output: 0 }
     - Local/self-hosted models       → Set to 0
     - Direct API usage               → Look up provider's pricing page
 
@@ -569,6 +581,17 @@ function cmdConfig(action?: string) {
     - DeepSeek:  https://platform.deepseek.com/api-docs/pricing
     - Google:    https://ai.google.dev/pricing
     - Or run:    opencode-tokens pricing
+
+  BUDGET CONTROL
+  ────────────────────────────────────────────────────────────────
+  Set spending limits to avoid unexpected costs:
+    daily      Maximum spend per day (USD)
+    weekly     Maximum spend per week (USD)
+    monthly    Maximum spend per month (USD)
+    warnAt     Warning threshold (0-1), default 0.8 = 80%
+
+  When budget is exceeded, you'll see a warning toast.
+  Check status anytime with: opencode-tokens budget
 
   ────────────────────────────────────────────────────────────────
   Example config based on your usage:
@@ -614,6 +637,104 @@ function cmdConfig(action?: string) {
   console.log()
 }
 
+function cmdBudget() {
+  const config = loadConfig()
+  const budget = config.budget
+  
+  if (!budget?.daily && !budget?.weekly && !budget?.monthly) {
+    console.log(`
+  Budget Status
+  ══════════════════════════════════════════════════════════════════
+
+  No budget configured.
+
+  To set a budget, add to your config file (${CONFIG_FILE}):
+
+  {
+    "budget": {
+      "daily": 5,       // $5 per day
+      "weekly": 25,     // $25 per week (optional)
+      "monthly": 100,   // $100 per month (optional)
+      "warnAt": 0.8     // Warn at 80% usage
+    }
+  }
+
+  Run: opencode-tokens config init  for more details.
+`)
+    return
+  }
+  
+  const now = new Date()
+  const warnAt = budget.warnAt ?? 0.8
+  
+  console.log(`
+  Budget Status
+  ══════════════════════════════════════════════════════════════════
+`)
+  
+  // Helper to create progress bar
+  const progressBar = (pct: number, width: number = 20): string => {
+    const filled = Math.min(Math.round(pct * width), width)
+    const empty = width - filled
+    const bar = "█".repeat(filled) + "░".repeat(empty)
+    return bar
+  }
+  
+  // Helper to get color indicator
+  const statusIndicator = (pct: number): string => {
+    if (pct >= 1) return "🔴"
+    if (pct >= warnAt) return "🟡"
+    return "🟢"
+  }
+  
+  const entries = loadEntries()
+  
+  // Daily budget
+  if (budget.daily) {
+    const dayStart = getStartOfDay(now)
+    const dayEntries = entries.filter(e => e._ts >= dayStart)
+    const spent = dayEntries.reduce((sum, e) => sum + (e.cost ?? 0), 0)
+    const pct = spent / budget.daily
+    const pctDisplay = Math.round(pct * 100)
+    
+    console.log(`  ${statusIndicator(pct)} Daily`)
+    console.log(`    ${formatCost(spent)} / ${formatCost(budget.daily)}  [${progressBar(pct)}] ${pctDisplay}%`)
+    console.log(`    Remaining: ${formatCost(Math.max(0, budget.daily - spent))}`)
+    console.log()
+  }
+  
+  // Weekly budget
+  if (budget.weekly) {
+    const weekStart = getStartOfWeek(now)
+    const weekEntries = entries.filter(e => e._ts >= weekStart)
+    const spent = weekEntries.reduce((sum, e) => sum + (e.cost ?? 0), 0)
+    const pct = spent / budget.weekly
+    const pctDisplay = Math.round(pct * 100)
+    
+    console.log(`  ${statusIndicator(pct)} Weekly`)
+    console.log(`    ${formatCost(spent)} / ${formatCost(budget.weekly)}  [${progressBar(pct)}] ${pctDisplay}%`)
+    console.log(`    Remaining: ${formatCost(Math.max(0, budget.weekly - spent))}`)
+    console.log()
+  }
+  
+  // Monthly budget
+  if (budget.monthly) {
+    const monthStart = getStartOfMonth(now)
+    const monthEntries = entries.filter(e => e._ts >= monthStart)
+    const spent = monthEntries.reduce((sum, e) => sum + (e.cost ?? 0), 0)
+    const pct = spent / budget.monthly
+    const pctDisplay = Math.round(pct * 100)
+    
+    console.log(`  ${statusIndicator(pct)} Monthly`)
+    console.log(`    ${formatCost(spent)} / ${formatCost(budget.monthly)}  [${progressBar(pct)}] ${pctDisplay}%`)
+    console.log(`    Remaining: ${formatCost(Math.max(0, budget.monthly - spent))}`)
+    console.log()
+  }
+  
+  console.log(`  Legend: 🟢 OK  🟡 Warning (>${Math.round(warnAt * 100)}%)  🔴 Exceeded`)
+  console.log()
+}
+
 function cmdHelp() {
   console.log(`
   opencode-tokens - Token usage statistics CLI
@@ -623,6 +744,7 @@ function cmdHelp() {
 
   Commands:
     (default)     Show usage statistics
+    budget        Show budget status (daily/weekly/monthly)
     pricing       Show built-in pricing table
     models        Show your used models and their pricing status  
     config        Show/generate configuration
@@ -637,6 +759,7 @@ function cmdHelp() {
 
   Examples:
     opencode-tokens                  # All-time summary
+    opencode-tokens budget           # Check budget status
     opencode-tokens today            # Today's summary
     opencode-tokens week --by model  # This week, by model
     opencode-tokens pricing          # Show pricing table
@@ -659,6 +782,11 @@ function main() {
   }
 
   // Handle subcommands
+  if (command === "budget") {
+    cmdBudget()
+    return
+  }
+  
   if (command === "pricing") {
     cmdPricing()
     return
