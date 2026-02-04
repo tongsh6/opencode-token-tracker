@@ -135,12 +135,66 @@ Unknown models use a default pricing estimate.
 
 ## Configuration
 
-Currently the plugin works out of the box with no configuration needed.
+Create a config file at `~/.config/opencode/token-tracker.json`:
 
-Future versions may support:
-- Custom pricing overrides
-- Toast display options
-- Export formats
+```json
+{
+  "providers": {
+    "github-copilot": { "input": 0, "output": 0 }
+  },
+  "models": {
+    "my-custom-model": { "input": 1, "output": 2 }
+  },
+  "toast": {
+    "enabled": true,
+    "duration": 3000,
+    "showOnIdle": true
+  }
+}
+```
+
+### Pricing Override
+
+Pricing is resolved in this order (first match wins):
+
+1. **Provider-level** - Override all models for a provider
+2. **User model config** - Custom model pricing in config file
+3. **Built-in pricing** - Default pricing table
+4. **Fallback** - $1/M input, $4/M output
+
+#### Example: Free providers
+
+If you're using GitHub Copilot or other subscription-based services, set their cost to $0:
+
+```json
+{
+  "providers": {
+    "github-copilot": { "input": 0, "output": 0 },
+    "cursor": { "input": 0, "output": 0 }
+  }
+}
+```
+
+#### Example: Custom model pricing
+
+Override or add pricing for specific models:
+
+```json
+{
+  "models": {
+    "claude-opus-4.5": { "input": 12, "output": 60, "cacheRead": 1.2 },
+    "my-local-model": { "input": 0, "output": 0 }
+  }
+}
+```
+
+### Toast Settings
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | boolean | `true` | Show toast notifications |
+| `duration` | number | `3000` | Toast display duration (ms) |
+| `showOnIdle` | boolean | `true` | Show session summary on idle |
 
 ## Development
 

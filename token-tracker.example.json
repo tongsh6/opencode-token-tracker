@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "opencode-token-tracker configuration file",
+  
+  "providers": {
+    "github-copilot": { "input": 0, "output": 0 },
+    "free-tier": { "input": 0, "output": 0 }
+  },
+  
+  "models": {
+    "my-custom-model": { "input": 1, "output": 2, "cacheRead": 0.1 }
+  },
+  
+  "toast": {
+    "enabled": true,
+    "duration": 3000,
+    "showOnIdle": true
+  }
+}
