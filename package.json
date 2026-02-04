@@ -1,0 +1,51 @@
+{
+  "name": "opencode-token-tracker",
+  "version": "1.0.0",
+  "description": "Real-time token usage and cost tracking plugin for OpenCode with Toast notifications",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "token",
+    "usage",
+    "cost",
+    "tracking",
+    "ai",
+    "llm",
+    "claude",
+    "gpt",
+    "anthropic",
+    "openai"
+  ],
+  "author": "tongsh6",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tongsh6/opencode-token-tracker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tongsh6/opencode-token-tracker/issues"
+  },
+  "homepage": "https://github.com/tongsh6/opencode-token-tracker#readme",
+  "dependencies": {
+    "@opencode-ai/plugin": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
