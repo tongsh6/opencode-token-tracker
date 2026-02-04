@@ -1,6 +1,6 @@
 {
   "name": "opencode-token-tracker",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Real-time token usage and cost tracking plugin for OpenCode with Toast notifications and CLI stats",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
