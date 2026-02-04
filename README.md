@@ -183,6 +183,35 @@ Create a config file at `~/.config/opencode/token-tracker.json`:
 }
 ```
 
+### Pricing Fields Explained
+
+All prices are in **USD per 1 million tokens**:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `input` | Cost for input/prompt tokens | `15` = $15 per 1M tokens |
+| `output` | Cost for output/completion tokens | `75` = $75 per 1M tokens |
+| `cacheRead` | Cost for cached input tokens (optional) | `1.5` = $1.5 per 1M tokens |
+| `cacheWrite` | Cost for cache write tokens (optional) | `18.75` = $18.75 per 1M tokens |
+
+**How to find pricing for your model:**
+
+1. Check the provider's official pricing page:
+   - [Anthropic Claude](https://www.anthropic.com/pricing)
+   - [OpenAI](https://openai.com/pricing)
+   - [DeepSeek](https://platform.deepseek.com/api-docs/pricing)
+   - [Google Gemini](https://ai.google.dev/pricing)
+
+2. Or run `opencode-tokens pricing` to see built-in prices
+
+**Common scenarios:**
+
+| Scenario | Config |
+|----------|--------|
+| Subscription service (GitHub Copilot, Cursor) | `{ "input": 0, "output": 0 }` |
+| Free/local model | `{ "input": 0, "output": 0 }` |
+| Custom API with known pricing | Look up provider's pricing page |
+
 ### Pricing Override
 
 Pricing is resolved in this order (first match wins):
@@ -207,7 +236,7 @@ If you're using GitHub Copilot or other subscription-based services, set their c
 
 #### Example: Custom model pricing
 
-Override or add pricing for specific models:
+Override or add pricing for specific models (prices in USD per 1M tokens):
 
 ```json
 {
