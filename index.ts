@@ -1,13 +1,15 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { appendFileSync, existsSync, mkdirSync } from "fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
 
-const LOG_DIR = join(homedir(), ".config", "opencode", "logs", "token-tracker")
+const CONFIG_DIR = join(homedir(), ".config", "opencode")
+const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
+const LOG_DIR = join(CONFIG_DIR, "logs", "token-tracker")
 const LOG_FILE = join(LOG_DIR, "tokens.jsonl")
 
 // ============================================================================
-// Pricing Table (USD per 1M tokens)
+// Configuration
 // ============================================================================
 
 interface ModelPricing {
@@ -17,8 +19,30 @@ interface ModelPricing {
   cacheWrite?: number // per 1M cache write tokens
 }
 
-// Prices as of 2026-02 (update as needed)
-const PRICING: Record<string, ModelPricing> = {
+interface ToastConfig {
+  enabled: boolean
+  duration: number
+  showOnIdle: boolean
+}
+
+interface Config {
+  providers: Record<string, ModelPricing>
+  models: Record<string, ModelPricing>
+  toast: ToastConfig
+}
+
+const DEFAULT_CONFIG: Config = {
+  providers: {},
+  models: {},
+  toast: {
+    enabled: true,
+    duration: 3000,
+    showOnIdle: true,
+  },
+}
+
+// Built-in pricing table (USD per 1M tokens) - as of 2026-02
+const BUILTIN_PRICING: Record<string, ModelPricing> = {
   // Anthropic Claude
   "claude-opus-4.5": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
   "claude-sonnet-4.5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
@@ -57,29 +81,73 @@ const PRICING: Record<string, ModelPricing> = {
   "_default": { input: 1, output: 4 },
 }
 
-function getModelPricing(model: string): ModelPricing {
-  // Try exact match first
-  if (PRICING[model]) return PRICING[model]
+let config: Config = DEFAULT_CONFIG
+
+function loadConfig(): Config {
+  try {
+    if (existsSync(CONFIG_FILE)) {
+      const content = readFileSync(CONFIG_FILE, "utf-8")
+      const userConfig = JSON.parse(content) as Partial<Config>
+      return {
+        providers: { ...DEFAULT_CONFIG.providers, ...userConfig.providers },
+        models: { ...DEFAULT_CONFIG.models, ...userConfig.models },
+        toast: { ...DEFAULT_CONFIG.toast, ...userConfig.toast },
+      }
+    }
+  } catch (e) {
+    // Config parse error - use defaults
+  }
+  return DEFAULT_CONFIG
+}
+
+// ============================================================================
+// Pricing
+// ============================================================================
+
+function getModelPricing(model: string, provider: string): ModelPricing {
+  // 1. Check provider-level override first (highest priority)
+  if (config.providers[provider]) {
+    return config.providers[provider]
+  }
   
-  // Try partial match (e.g., "claude-opus-4.5" matches "claude-opus-4.5-xxx")
+  // 2. Check user-defined model pricing
+  if (config.models[model]) {
+    return config.models[model]
+  }
+  
+  // 3. Check built-in exact match
+  if (BUILTIN_PRICING[model]) {
+    return BUILTIN_PRICING[model]
+  }
+  
+  // 4. Try partial match in user config
   const modelLower = model.toLowerCase()
-  for (const [key, pricing] of Object.entries(PRICING)) {
+  for (const [key, pricing] of Object.entries(config.models)) {
+    if (modelLower.includes(key.toLowerCase())) {
+      return pricing
+    }
+  }
+  
+  // 5. Try partial match in built-in pricing
+  for (const [key, pricing] of Object.entries(BUILTIN_PRICING)) {
     if (key !== "_default" && modelLower.includes(key.toLowerCase())) {
       return pricing
     }
   }
   
-  return PRICING["_default"]
+  // 6. Fallback to default
+  return BUILTIN_PRICING["_default"]
 }
 
 function calculateCost(
   model: string,
+  provider: string,
   input: number,
   output: number,
   cacheRead: number = 0,
   cacheWrite: number = 0
 ): number {
-  const pricing = getModelPricing(model)
+  const pricing = getModelPricing(model, provider)
   
   // Billable input = total input - cache read (cached tokens are charged at cache rate)
   const billableInput = Math.max(0, input - cacheRead)
@@ -194,7 +262,10 @@ interface MessageInfo {
 }
 
 export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
-  logJson({ type: "init", directory })
+  // Load config on plugin init
+  config = loadConfig()
+  
+  logJson({ type: "init", directory, configLoaded: existsSync(CONFIG_FILE) })
 
   return {
     event: async ({ event }) => {
@@ -223,7 +294,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
 
           const model = info.model?.modelID ?? info.modelID ?? "unknown"
           const provider = info.model?.providerID ?? info.providerID ?? "unknown"
-          const cost = calculateCost(model, input, output, cacheRead, cacheWrite)
+          const cost = calculateCost(model, provider, input, output, cacheRead, cacheWrite)
 
           // Update session stats
           const stats = getOrCreateSessionStats(sessionId)
@@ -253,21 +324,25 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
           })
 
           // Show toast for this message
-          const totalTokens = input + output
-          try {
-            await client.tui.showToast({
-              body: {
-                title: `${formatTokens(totalTokens)} tokens`,
-                message: `${formatCost(cost)} | Session: ${formatCost(stats.totalCost)}`,
-                variant: "info",
-                duration: 3000,
-              },
-            })
-          } catch {}
+          if (config.toast.enabled) {
+            const totalTokens = input + output
+            try {
+              await client.tui.showToast({
+                body: {
+                  title: `${formatTokens(totalTokens)} tokens`,
+                  message: `${formatCost(cost)} | Session: ${formatCost(stats.totalCost)}`,
+                  variant: "info",
+                  duration: config.toast.duration,
+                },
+              })
+            } catch {}
+          }
         }
 
         // Handle session idle (show summary)
         if (event.type === "session.idle") {
+          if (!config.toast.enabled || !config.toast.showOnIdle) return
+          
           const props = event.properties as { sessionID?: string } | undefined
           const sessionId = props?.sessionID
           if (!sessionId) return
