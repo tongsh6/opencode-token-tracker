@@ -532,18 +532,47 @@ function cmdConfig(action?: string) {
       exampleConfig.models![model] = { input: 1, output: 4 }
     }
     
+    // Print explanation first
+    console.log(`
+  Pricing Configuration Guide
+  ══════════════════════════════════════════════════════════════════
+
+  All prices are in USD per 1 MILLION tokens.
+
+  Fields:
+    input      Cost for input/prompt tokens sent to the model
+    output     Cost for output/completion tokens from the model
+    cacheRead  Cost for cached input tokens (optional, usually cheaper)
+    cacheWrite Cost for cache write tokens (optional)
+
+  Examples:
+    { "input": 15, "output": 75 }     = $15 per 1M input, $75 per 1M output
+    { "input": 0, "output": 0 }       = Free (subscription or local model)
+
+  Common scenarios:
+    - GitHub Copilot, Cursor, etc.   → Set to 0 (subscription-based)
+    - Local/self-hosted models       → Set to 0
+    - Direct API usage               → Look up provider's pricing page
+
+  Where to find pricing:
+    - Anthropic: https://www.anthropic.com/pricing
+    - OpenAI:    https://openai.com/pricing
+    - DeepSeek:  https://platform.deepseek.com/api-docs/pricing
+    - Google:    https://ai.google.dev/pricing
+    - Or run:    opencode-tokens pricing
+
+  ────────────────────────────────────────────────────────────────
+  Example config based on your usage:
+`)
+    console.log(JSON.stringify(exampleConfig, null, 2))
+    
     if (action === "generate") {
       const json = JSON.stringify(exampleConfig, null, 2)
       writeFileSync(CONFIG_FILE, json)
-      console.log(`\n  Config file generated: ${CONFIG_FILE}\n`)
-      console.log(json)
-      console.log()
-    } else {
       console.log(`
-  Example config based on your usage:
-  ────────────────────────────────────────────────────────────────
+  Config file created: ${CONFIG_FILE}
 `)
-      console.log(JSON.stringify(exampleConfig, null, 2))
+    } else {
       console.log(`
   To create this config file, run:
     opencode-tokens config generate
@@ -571,8 +600,8 @@ function cmdConfig(action?: string) {
   }
   
   console.log(`  Commands:`)
-  console.log(`    opencode-tokens config init      Show example config based on your usage`)
-  console.log(`    opencode-tokens config generate  Create config file with example`)
+  console.log(`    opencode-tokens config init      Show example config with explanation`)
+  console.log(`    opencode-tokens config generate  Create config file`)
   console.log()
 }
 
