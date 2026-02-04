@@ -94,6 +94,36 @@ Breakdown options (`--by`):
 - `daily` - Show day-by-day breakdown
 - `all` - Show all breakdowns
 
+### Pricing & Config Commands
+
+```bash
+# Show built-in pricing table
+opencode-tokens pricing
+
+# Show your used models and their pricing status
+opencode-tokens models
+
+# Show current config
+opencode-tokens config
+
+# Generate example config based on your usage
+opencode-tokens config init
+```
+
+Example `models` output:
+```
+  Model                     Provider              Msgs  Pricing     
+  ------------------------  ----------------  --------  ------------
+  claude-opus-4.5           github-copilot         379  provider cfg
+  deepseek-chat             deepseek                 6  built-in    
+  gpt-5.2                   openai                  18  built-in    
+```
+
+This helps you understand:
+- Which models/providers you're using
+- Whether pricing is from built-in table, your config, or default fallback
+- What to add to your config file
+
 ## Log Files
 
 Token usage is logged to:

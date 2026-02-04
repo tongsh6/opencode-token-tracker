@@ -1,10 +1,62 @@
 #!/usr/bin/env node
 
-import { readFileSync, existsSync } from "fs"
+import { readFileSync, existsSync, writeFileSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
 
-const LOG_FILE = join(homedir(), ".config", "opencode", "logs", "token-tracker", "tokens.jsonl")
+const CONFIG_DIR = join(homedir(), ".config", "opencode")
+const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
+const LOG_FILE = join(CONFIG_DIR, "logs", "token-tracker", "tokens.jsonl")
+
+// ============================================================================
+// Built-in Pricing (keep in sync with index.ts)
+// ============================================================================
+
+interface ModelPricing {
+  input: number
+  output: number
+  cacheRead?: number
+  cacheWrite?: number
+}
+
+const BUILTIN_PRICING: Record<string, ModelPricing> = {
+  // Anthropic Claude
+  "claude-opus-4.5": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  "claude-sonnet-4.5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-sonnet-4": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-haiku-4.5": { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
+  "claude-haiku-4": { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
+  
+  // OpenAI GPT
+  "gpt-5.2": { input: 2.5, output: 10 },
+  "gpt-5.2-codex": { input: 3, output: 12 },
+  "gpt-5.1": { input: 2, output: 8 },
+  "gpt-5": { input: 5, output: 15 },
+  "gpt-4.1": { input: 2, output: 8 },
+  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
+  "gpt-4.1-nano": { input: 0.1, output: 0.4 },
+  "gpt-4o": { input: 2.5, output: 10 },
+  "gpt-4o-mini": { input: 0.15, output: 0.6 },
+  "o3": { input: 10, output: 40 },
+  "o3-mini": { input: 1.1, output: 4.4 },
+  "o1": { input: 15, output: 60 },
+  "o1-mini": { input: 1.1, output: 4.4 },
+  
+  // DeepSeek
+  "deepseek-chat": { input: 0.14, output: 0.28, cacheRead: 0.014 },
+  "deepseek-reasoner": { input: 0.55, output: 2.19, cacheRead: 0.055 },
+  
+  // Google Gemini
+  "gemini-3-pro": { input: 1.25, output: 5 },
+  "gemini-3-pro-preview": { input: 1.25, output: 5 },
+  "gemini-3-flash": { input: 0.1, output: 0.4 },
+  "gemini-2.5-pro": { input: 1.25, output: 5 },
+  "gemini-2.5-flash": { input: 0.075, output: 0.3 },
+  "gemini-2.0-flash": { input: 0.1, output: 0.4 },
+  
+  // Fallback
+  "_default": { input: 1, output: 4 },
+}
 
 // ============================================================================
 // Types
@@ -35,6 +87,16 @@ interface Stats {
   cacheWrite: number
   cost: number
   count: number
+}
+
+interface Config {
+  providers?: Record<string, ModelPricing>
+  models?: Record<string, ModelPricing>
+  toast?: {
+    enabled?: boolean
+    duration?: number
+    showOnIdle?: boolean
+  }
 }
 
 // ============================================================================
@@ -70,7 +132,7 @@ function getStartOfDay(date: Date): number {
 function getStartOfWeek(date: Date): number {
   const d = new Date(date)
   const day = d.getDay()
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1) // Monday as start
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
   d.setDate(diff)
   d.setHours(0, 0, 0, 0)
   return d.getTime()
@@ -101,7 +163,7 @@ function loadEntries(since?: number): TokenEntry[] {
       const entry = JSON.parse(line) as TokenEntry
       if (entry.type !== "tokens") continue
       if (since && entry._ts < since) continue
-      if (!entry.input && !entry.output) continue // Skip empty entries
+      if (!entry.input && !entry.output) continue
       entries.push(entry)
     } catch {
       // Skip malformed lines
@@ -109,6 +171,15 @@ function loadEntries(since?: number): TokenEntry[] {
   }
 
   return entries
+}
+
+function loadConfig(): Config {
+  try {
+    if (existsSync(CONFIG_FILE)) {
+      return JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+    }
+  } catch {}
+  return {}
 }
 
 // ============================================================================
@@ -174,7 +245,6 @@ function printSummary(title: string, stats: Stats) {
 }
 
 function printTable(title: string, groups: Map<string, Stats>, labelHeader: string) {
-  // Sort by cost descending
   const sorted = Array.from(groups.entries()).sort((a, b) => b[1].cost - a[1].cost)
 
   if (sorted.length === 0) {
@@ -182,7 +252,6 @@ function printTable(title: string, groups: Map<string, Stats>, labelHeader: stri
     return
   }
 
-  // Calculate column widths
   const labelWidth = Math.max(labelHeader.length, ...sorted.map(([k]) => k.length))
   const tokensWidth = 10
   const costWidth = 10
@@ -191,8 +260,6 @@ function printTable(title: string, groups: Map<string, Stats>, labelHeader: stri
   console.log()
   console.log(`  ${title}`)
   console.log(`  ${"─".repeat(labelWidth + tokensWidth + costWidth + countWidth + 12)}`)
-
-  // Header
   console.log(
     `  ${padRight(labelHeader, labelWidth)}  ${padLeft("Tokens", tokensWidth)}  ${padLeft("Cost", costWidth)}  ${padLeft("Msgs", countWidth)}`
   )
@@ -200,7 +267,6 @@ function printTable(title: string, groups: Map<string, Stats>, labelHeader: stri
     `  ${"-".repeat(labelWidth)}  ${"-".repeat(tokensWidth)}  ${"-".repeat(costWidth)}  ${"-".repeat(countWidth)}`
   )
 
-  // Rows
   for (const [label, stats] of sorted) {
     const totalTokens = stats.input + stats.output
     console.log(
@@ -213,10 +279,9 @@ function printTable(title: string, groups: Map<string, Stats>, labelHeader: stri
 function printDailyBreakdown(entries: TokenEntry[]) {
   const byDay = groupBy(entries, (e) => {
     const date = new Date(e._ts)
-    return date.toISOString().slice(0, 10) // YYYY-MM-DD
+    return date.toISOString().slice(0, 10)
   })
 
-  // Sort by date descending
   const sorted = Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]))
 
   if (sorted.length === 0) {
@@ -284,11 +349,9 @@ function cmdStats(period: string, breakdown?: string) {
     return
   }
 
-  // Overall summary
   const total = aggregateStats(entries)
   printSummary(title, total)
 
-  // Breakdown
   switch (breakdown) {
     case "model":
       printTable("By Model", groupBy(entries, (e) => e.model ?? "unknown"), "Model")
@@ -311,32 +374,236 @@ function cmdStats(period: string, breakdown?: string) {
   }
 }
 
+function cmdPricing() {
+  const config = loadConfig()
+  
+  console.log(`
+  Built-in Pricing Table (USD per 1M tokens)
+  ══════════════════════════════════════════════════════════════════
+`)
+  
+  // Group by provider
+  const groups: Record<string, string[]> = {
+    "Anthropic Claude": ["claude-opus-4.5", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5", "claude-haiku-4"],
+    "OpenAI": ["gpt-5.2", "gpt-5.2-codex", "gpt-5.1", "gpt-5", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o3", "o3-mini", "o1", "o1-mini"],
+    "DeepSeek": ["deepseek-chat", "deepseek-reasoner"],
+    "Google Gemini": ["gemini-3-pro", "gemini-3-pro-preview", "gemini-3-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+  }
+  
+  const modelWidth = 20
+  const priceWidth = 10
+  
+  for (const [group, models] of Object.entries(groups)) {
+    console.log(`  ${group}`)
+    console.log(`  ${"-".repeat(modelWidth + priceWidth * 4 + 12)}`)
+    console.log(`  ${padRight("Model", modelWidth)}  ${padLeft("Input", priceWidth)}  ${padLeft("Output", priceWidth)}  ${padLeft("CacheRd", priceWidth)}  ${padLeft("CacheWr", priceWidth)}`)
+    
+    for (const model of models) {
+      const p = BUILTIN_PRICING[model]
+      if (!p) continue
+      const overridden = config.models?.[model] ? " *" : ""
+      console.log(
+        `  ${padRight(model + overridden, modelWidth)}  ${padLeft("$" + p.input.toString(), priceWidth)}  ${padLeft("$" + p.output.toString(), priceWidth)}  ${padLeft(p.cacheRead ? "$" + p.cacheRead.toString() : "-", priceWidth)}  ${padLeft(p.cacheWrite ? "$" + p.cacheWrite.toString() : "-", priceWidth)}`
+      )
+    }
+    console.log()
+  }
+  
+  console.log(`  Default (unknown models)`)
+  console.log(`  ${"-".repeat(modelWidth + priceWidth * 4 + 12)}`)
+  const def = BUILTIN_PRICING["_default"]
+  console.log(`  ${padRight("_default", modelWidth)}  ${padLeft("$" + def.input.toString(), priceWidth)}  ${padLeft("$" + def.output.toString(), priceWidth)}  ${padLeft("-", priceWidth)}  ${padLeft("-", priceWidth)}`)
+  console.log()
+  
+  if (Object.keys(config.models || {}).length > 0) {
+    console.log(`  * = overridden in config`)
+  }
+}
+
+function cmdModels() {
+  const entries = loadEntries()
+  
+  if (entries.length === 0) {
+    console.log(`\n  No usage data found. Start using OpenCode to collect data.\n`)
+    return
+  }
+  
+  // Get unique model+provider combinations
+  const modelProviders = new Map<string, { provider: string; count: number; lastUsed: number }>()
+  
+  for (const e of entries) {
+    const model = e.model ?? "unknown"
+    const provider = e.provider ?? "unknown"
+    const key = `${model}|${provider}`
+    
+    if (!modelProviders.has(key)) {
+      modelProviders.set(key, { provider, count: 0, lastUsed: 0 })
+    }
+    const info = modelProviders.get(key)!
+    info.count++
+    info.lastUsed = Math.max(info.lastUsed, e._ts)
+  }
+  
+  // Sort by last used
+  const sorted = Array.from(modelProviders.entries())
+    .map(([key, info]) => ({ model: key.split("|")[0], ...info }))
+    .sort((a, b) => b.lastUsed - a.lastUsed)
+  
+  const config = loadConfig()
+  
+  console.log(`
+  Your Used Models
+  ══════════════════════════════════════════════════════════════════
+`)
+  
+  const modelWidth = 24
+  const providerWidth = 16
+  const countWidth = 8
+  const statusWidth = 12
+  
+  console.log(`  ${padRight("Model", modelWidth)}  ${padRight("Provider", providerWidth)}  ${padLeft("Msgs", countWidth)}  ${padRight("Pricing", statusWidth)}`)
+  console.log(`  ${"-".repeat(modelWidth)}  ${"-".repeat(providerWidth)}  ${"-".repeat(countWidth)}  ${"-".repeat(statusWidth)}`)
+  
+  for (const { model, provider, count } of sorted) {
+    let status = "built-in"
+    if (config.providers?.[provider]) {
+      status = "provider cfg"
+    } else if (config.models?.[model]) {
+      status = "model cfg"
+    } else if (!BUILTIN_PRICING[model]) {
+      // Check partial match
+      const hasMatch = Object.keys(BUILTIN_PRICING).some(k => k !== "_default" && model.toLowerCase().includes(k.toLowerCase()))
+      status = hasMatch ? "built-in" : "default"
+    }
+    
+    console.log(`  ${padRight(model, modelWidth)}  ${padRight(provider, providerWidth)}  ${padLeft(count.toString(), countWidth)}  ${padRight(status, statusWidth)}`)
+  }
+  
+  console.log()
+  console.log(`  Pricing status:`)
+  console.log(`    built-in     = using built-in pricing table`)
+  console.log(`    provider cfg = overridden by providers config`)
+  console.log(`    model cfg    = overridden by models config`)
+  console.log(`    default      = unknown model, using $1/$4 per 1M tokens`)
+  console.log()
+}
+
+function cmdConfig(action?: string) {
+  const config = loadConfig()
+  const entries = loadEntries()
+  
+  if (action === "init" || action === "generate") {
+    // Get unique providers from logs
+    const providers = new Set<string>()
+    const models = new Set<string>()
+    
+    for (const e of entries) {
+      if (e.provider) providers.add(e.provider)
+      if (e.model) models.add(e.model)
+    }
+    
+    // Find providers/models without built-in pricing
+    const unknownModels = Array.from(models).filter(m => {
+      if (BUILTIN_PRICING[m]) return false
+      const hasMatch = Object.keys(BUILTIN_PRICING).some(k => k !== "_default" && m.toLowerCase().includes(k.toLowerCase()))
+      return !hasMatch
+    })
+    
+    const exampleConfig: Config = {
+      providers: {},
+      models: {},
+      toast: {
+        enabled: true,
+        duration: 3000,
+        showOnIdle: true,
+      },
+    }
+    
+    // Add providers as comments/examples
+    for (const provider of providers) {
+      // Common free providers
+      if (provider.includes("copilot") || provider.includes("cursor") || provider.includes("free")) {
+        exampleConfig.providers![provider] = { input: 0, output: 0 }
+      }
+    }
+    
+    // Add unknown models
+    for (const model of unknownModels) {
+      exampleConfig.models![model] = { input: 1, output: 4 }
+    }
+    
+    if (action === "generate") {
+      const json = JSON.stringify(exampleConfig, null, 2)
+      writeFileSync(CONFIG_FILE, json)
+      console.log(`\n  Config file generated: ${CONFIG_FILE}\n`)
+      console.log(json)
+      console.log()
+    } else {
+      console.log(`
+  Example config based on your usage:
+  ────────────────────────────────────────────────────────────────
+`)
+      console.log(JSON.stringify(exampleConfig, null, 2))
+      console.log(`
+  To create this config file, run:
+    opencode-tokens config generate
+  
+  Or manually create: ${CONFIG_FILE}
+`)
+    }
+    return
+  }
+  
+  // Show current config
+  console.log(`
+  Current Configuration
+  ══════════════════════════════════════════════════════════════════
+  
+  Config file: ${CONFIG_FILE}
+  Status: ${existsSync(CONFIG_FILE) ? "exists" : "not found (using defaults)"}
+`)
+  
+  if (existsSync(CONFIG_FILE)) {
+    console.log(`  Contents:`)
+    console.log(`  ${"-".repeat(60)}`)
+    console.log(JSON.stringify(config, null, 2).split("\n").map(l => "  " + l).join("\n"))
+    console.log()
+  }
+  
+  console.log(`  Commands:`)
+  console.log(`    opencode-tokens config init      Show example config based on your usage`)
+  console.log(`    opencode-tokens config generate  Create config file with example`)
+  console.log()
+}
+
 function cmdHelp() {
   console.log(`
   opencode-tokens - Token usage statistics CLI
 
   Usage:
-    opencode-tokens [period] [--by <breakdown>]
+    opencode-tokens [command] [options]
 
-  Period:
-    today       Show today's usage
-    week        Show this week's usage  
-    month       Show this month's usage
-    all         Show all-time usage (default)
+  Commands:
+    (default)     Show usage statistics
+    pricing       Show built-in pricing table
+    models        Show your used models and their pricing status  
+    config        Show/generate configuration
 
-  Breakdown (--by):
-    model       Group by model (e.g., claude-opus-4.5)
-    agent       Group by agent (e.g., sisyphus, coder)
-    provider    Group by provider (e.g., anthropic, openai)
-    daily       Show day-by-day breakdown
-    all         Show all breakdowns
+  Statistics Options:
+    today         Show today's usage
+    week          Show this week's usage  
+    month         Show this month's usage
+    all           Show all-time usage (default)
+    
+    --by <type>   Group by: model, agent, provider, daily, all
 
   Examples:
     opencode-tokens                  # All-time summary
     opencode-tokens today            # Today's summary
-    opencode-tokens week --by model  # This week, grouped by model
-    opencode-tokens month --by all   # This month, all breakdowns
-    opencode-tokens --by daily       # All-time, day by day
+    opencode-tokens week --by model  # This week, by model
+    opencode-tokens pricing          # Show pricing table
+    opencode-tokens models           # Show your models
+    opencode-tokens config init      # Generate example config
 `)
 }
 
@@ -346,13 +613,30 @@ function cmdHelp() {
 
 function main() {
   const args = process.argv.slice(2)
+  const command = args[0]
 
   if (args.includes("--help") || args.includes("-h")) {
     cmdHelp()
     return
   }
 
-  // Parse arguments
+  // Handle subcommands
+  if (command === "pricing") {
+    cmdPricing()
+    return
+  }
+  
+  if (command === "models") {
+    cmdModels()
+    return
+  }
+  
+  if (command === "config") {
+    cmdConfig(args[1])
+    return
+  }
+
+  // Parse stats arguments
   let period = "all"
   let breakdown: string | undefined
 
