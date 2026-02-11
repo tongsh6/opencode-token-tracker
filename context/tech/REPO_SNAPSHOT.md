@@ -26,6 +26,7 @@ index.ts
 lib/shared.ts
 bin/opencode-tokens.ts
 test/shared.test.ts
+.github/workflows/ci.yml
 token-tracker.example.json
 AGENTS.md
 context/
@@ -58,7 +59,7 @@ context/
 
 - 分支策略：`feature/*` 或 `fix/*` -> PR 到 `dev` -> PR 到 `main`
 - 提交规范：Conventional Commits
-- CI：仓库未配置独立 CI 工作流（以本地构建验证为主）
+- CI：GitHub Actions（Node 18 + 22 矩阵，push/PR 到 main/dev 触发）
 - 发布：合并到 `main` 后按版本打 tag，执行 `npm publish`
 
 ## 常用命令
