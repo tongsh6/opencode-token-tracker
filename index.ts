@@ -1,6 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import type { ModelPricing } from "./lib/shared.js"
-import { BUILTIN_PRICING, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth } from "./lib/shared.js"
+import type { ModelPricing, TrackerConfig } from "./lib/shared.js"
+import { BUILTIN_PRICING, DEFAULT_CONFIG, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "./lib/shared.js"
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
@@ -14,55 +14,21 @@ const LOG_FILE = join(LOG_DIR, "tokens.jsonl")
 // Configuration
 // ============================================================================
 
-interface ToastConfig {
-  enabled: boolean
-  duration: number
-  showOnIdle: boolean
-}
+let config: TrackerConfig = DEFAULT_CONFIG
+let configWarnings: string[] = []
 
-interface BudgetConfig {
-  daily?: number      // Daily budget in USD
-  weekly?: number     // Weekly budget in USD
-  monthly?: number    // Monthly budget in USD
-  warnAt: number      // Percentage (0-1) at which to start warning (default: 0.8)
-}
-
-interface Config {
-  providers: Record<string, ModelPricing>
-  models: Record<string, ModelPricing>
-  toast: ToastConfig
-  budget: BudgetConfig
-}
-
-const DEFAULT_CONFIG: Config = {
-  providers: {},
-  models: {},
-  toast: {
-    enabled: true,
-    duration: 3000,
-    showOnIdle: true,
-  },
-  budget: {
-    warnAt: 0.8,
-  },
-}
-
-let config: Config = DEFAULT_CONFIG
-
-function loadConfig(): Config {
+function loadConfig(): TrackerConfig {
   try {
     if (existsSync(CONFIG_FILE)) {
       const content = readFileSync(CONFIG_FILE, "utf-8")
-      const userConfig = JSON.parse(content) as Partial<Config>
-      return {
-        providers: { ...DEFAULT_CONFIG.providers, ...userConfig.providers },
-        models: { ...DEFAULT_CONFIG.models, ...userConfig.models },
-        toast: { ...DEFAULT_CONFIG.toast, ...userConfig.toast },
-        budget: { ...DEFAULT_CONFIG.budget, ...userConfig.budget },
-      }
+      const raw = JSON.parse(content)
+      const result = validateConfig(raw)
+      configWarnings = result.warnings
+      return result.config
     }
-  } catch (e) {
-    // Config parse error - use defaults
+  } catch {
+    // JSON parse error - use defaults
+    configWarnings = ["Config file is not valid JSON, using defaults"]
   }
   return DEFAULT_CONFIG
 }
@@ -412,13 +378,27 @@ interface MessageInfo {
 }
 
 export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
-  // Load config on plugin init
+  // Load config on plugin init (with validation)
   config = loadConfig()
   
   // Initialize in-memory budget tracker (reads JSONL once)
   initBudgetTracker()
   
   logJson({ type: "init", directory, configLoaded: existsSync(CONFIG_FILE) })
+
+  // Show config validation warnings via Toast
+  if (configWarnings.length > 0) {
+    try {
+      await client.tui.showToast({
+        body: {
+          title: "Token Tracker: config warning",
+          message: configWarnings.join("; "),
+          variant: "warning",
+          duration: 5000,
+        },
+      })
+    } catch {}
+  }
 
   return {
     event: async ({ event }) => {
