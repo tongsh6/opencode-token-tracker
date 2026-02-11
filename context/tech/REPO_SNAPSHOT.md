@@ -28,6 +28,7 @@ bin/opencode-tokens.ts
 test/shared.test.ts
 .github/workflows/ci.yml
 token-tracker.example.json
+CHANGELOG.md
 AGENTS.md
 context/
 ```
@@ -65,6 +66,7 @@ context/
 - 提交规范：Conventional Commits
 - CI：GitHub Actions（Node 18 + 22 矩阵，push/PR 到 main/dev 触发）
 - 发布：合并到 `main` 后按版本打 tag，执行 `npm publish`
+- 当前版本：`1.5.0`（2026-02-11 发布）
 
 ## 常用命令
 
