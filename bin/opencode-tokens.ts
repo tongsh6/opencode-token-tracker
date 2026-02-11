@@ -302,16 +302,16 @@ function cmdPricing() {
   const config = loadConfig()
   
   console.log(`
-  Built-in Pricing Table (USD per 1M tokens) - Updated 2026-02-05
+  Built-in Pricing Table (USD per 1M tokens) - Updated 2026-02-11
   ══════════════════════════════════════════════════════════════════
 `)
   
   // Group by provider
   const groups: Record<string, string[]> = {
-    "Anthropic Claude": ["claude-opus-4.5", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5", "claude-haiku-4", "claude-opus-4.1", "claude-opus-4", "claude-haiku-3"],
+    "Anthropic Claude": ["claude-opus-4.6", "claude-opus-4.5", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5", "claude-haiku-4", "claude-opus-4.1", "claude-opus-4", "claude-haiku-3"],
     "OpenAI": ["gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5.1", "gpt-5", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o3", "o3-mini", "o4-mini", "o1", "o1-mini"],
     "DeepSeek": ["deepseek-chat", "deepseek-reasoner"],
-    "Google Gemini": ["gemini-3-pro", "gemini-3-pro-preview", "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
+    "Google Gemini": ["gemini-3-pro", "gemini-3-pro-preview", "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
   }
   
   const modelWidth = 20
