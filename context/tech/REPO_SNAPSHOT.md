@@ -22,6 +22,7 @@
 
 ```
 index.ts
+lib/shared.ts
 bin/opencode-tokens.ts
 token-tracker.example.json
 AGENTS.md
@@ -29,6 +30,11 @@ context/
 ```
 
 ## 关键模块
+
+- `lib/shared.ts`
+  - 共享模块：`ModelPricing` 接口、`BUILTIN_PRICING` 定价表
+  - 工具函数：`formatCost`、`formatTokens`、`getStartOfDay`/`Week`/`Month`
+  - 由 `index.ts` 和 `bin/opencode-tokens.ts` 共同导入
 
 - `index.ts`
   - 插件入口（`TokenTrackerPlugin`）
@@ -67,6 +73,6 @@ node dist/bin/opencode-tokens.js pricing
 
 ## 维护提醒
 
-- `BUILTIN_PRICING` 在 `index.ts` 与 `bin/opencode-tokens.ts` 各维护一份，改价需同步
+- `BUILTIN_PRICING` 已统一到 `lib/shared.ts`，修改定价只需改一处
 - `seen` 去重集合存在上限（10,000）以控制内存
 - 预算命令会全量读取日志，日志增长后要注意性能
