@@ -23,7 +23,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 | `context/INDEX.md` | context 总入口与导航 |
 | `context/tech/REPO_SNAPSHOT.md` | 当前仓库结构与技术快照 |
 | `context/tech/conventions/typescript.md` | TypeScript 代码风格与约定 |
-| `context/business/` | 业务背景与产品语义（预留） |
+| `context/business/INDEX.md` | 业务背景、术语定义与语义口径 |
 | `context/experience/INDEX.md` | 经验库索引 |
 | `context/experience/lessons/` | 复盘与经验沉淀（预留） |
 
