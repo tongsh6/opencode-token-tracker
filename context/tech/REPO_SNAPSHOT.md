@@ -16,6 +16,7 @@
 - 编译目标：ES2022
 - 模块解析：`bundler`
 - 运行时依赖：`@opencode-ai/plugin`
+- 测试：Node.js 内置 `node:test` + `node:assert`（零额外依赖）
 - 构建：`tsc`
 
 ## 代码结构
@@ -24,6 +25,7 @@
 index.ts
 lib/shared.ts
 bin/opencode-tokens.ts
+test/shared.test.ts
 token-tracker.example.json
 AGENTS.md
 context/
@@ -64,6 +66,7 @@ context/
 ```bash
 npm install
 npm run build
+npm test
 npm link
 node dist/bin/opencode-tokens.js
 node dist/bin/opencode-tokens.js today --by model
