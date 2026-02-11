@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import type { ModelPricing } from "../lib/shared.js"
+import { BUILTIN_PRICING, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth } from "../lib/shared.js"
 import { readFileSync, existsSync, writeFileSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
@@ -7,65 +9,6 @@ import { homedir } from "os"
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
 const LOG_FILE = join(CONFIG_DIR, "logs", "token-tracker", "tokens.jsonl")
-
-// ============================================================================
-// Built-in Pricing (keep in sync with index.ts)
-// ============================================================================
-
-interface ModelPricing {
-  input: number
-  output: number
-  cacheRead?: number
-  cacheWrite?: number
-}
-
-// Built-in pricing (USD per 1M tokens) - Updated 2026-02-05
-// Keep in sync with index.ts BUILTIN_PRICING
-const BUILTIN_PRICING: Record<string, ModelPricing> = {
-  // Anthropic Claude (https://www.anthropic.com/pricing#api)
-  "claude-opus-4.5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-sonnet-4.5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-sonnet-4": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-haiku-4.5": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
-  "claude-haiku-4": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
-  "claude-opus-4.1": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
-  "claude-opus-4": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
-  "claude-haiku-3": { input: 0.25, output: 1.25, cacheRead: 0.03, cacheWrite: 0.3 },
-  
-  // OpenAI GPT (https://openai.com/api/pricing/)
-  "gpt-5.2": { input: 1.75, output: 14, cacheRead: 0.175 },
-  "gpt-5.2-pro": { input: 21, output: 168 },
-  "gpt-5-mini": { input: 0.25, output: 2, cacheRead: 0.025 },
-  "gpt-5.1": { input: 2, output: 8 },
-  "gpt-5": { input: 5, output: 15 },
-  "gpt-4.1": { input: 3, output: 12, cacheRead: 0.75 },
-  "gpt-4.1-mini": { input: 0.8, output: 3.2, cacheRead: 0.2 },
-  "gpt-4.1-nano": { input: 0.2, output: 0.8, cacheRead: 0.05 },
-  "gpt-4o": { input: 2.5, output: 10 },
-  "gpt-4o-mini": { input: 0.15, output: 0.6 },
-  "o3": { input: 10, output: 40 },
-  "o3-mini": { input: 1.1, output: 4.4 },
-  "o4-mini": { input: 4, output: 16, cacheRead: 1 },
-  "o1": { input: 15, output: 60 },
-  "o1-mini": { input: 1.1, output: 4.4 },
-  
-  // DeepSeek (https://api-docs.deepseek.com/quick_start/pricing)
-  "deepseek-chat": { input: 0.28, output: 0.42, cacheRead: 0.028 },
-  "deepseek-reasoner": { input: 0.28, output: 0.42, cacheRead: 0.028 },
-  
-  // Google Gemini (https://cloud.google.com/vertex-ai/generative-ai/pricing)
-  "gemini-3-pro": { input: 2, output: 12, cacheRead: 0.2 },
-  "gemini-3-pro-preview": { input: 2, output: 12, cacheRead: 0.2 },
-  "gemini-3-flash": { input: 0.5, output: 2, cacheRead: 0.05 },
-  "gemini-3-flash-preview": { input: 0.5, output: 2, cacheRead: 0.05 },
-  "gemini-2.5-pro": { input: 1.25, output: 10, cacheRead: 0.125 },
-  "gemini-2.5-flash": { input: 0.1, output: 0.4, cacheRead: 0.01 },
-  "gemini-2.5-flash-lite": { input: 0.1, output: 0.4, cacheRead: 0.01 },
-  "gemini-2.0-flash": { input: 0.15, output: 0.6, cacheRead: 0.015 },
-  
-  // Fallback
-  "_default": { input: 1, output: 4 },
-}
 
 // ============================================================================
 // Types
@@ -118,46 +61,12 @@ interface Config {
 // Helpers
 // ============================================================================
 
-function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(2)}M`
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`
-  return tokens.toString()
-}
-
-function formatCost(cost: number): string {
-  if (cost < 0.01) return `$${cost.toFixed(4)}`
-  if (cost < 1) return `$${cost.toFixed(3)}`
-  return `$${cost.toFixed(2)}`
-}
-
 function padRight(str: string, len: number): string {
   return str.length >= len ? str : str + " ".repeat(len - str.length)
 }
 
 function padLeft(str: string, len: number): string {
   return str.length >= len ? str : " ".repeat(len - str.length) + str
-}
-
-function getStartOfDay(date: Date): number {
-  const d = new Date(date)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
-}
-
-function getStartOfWeek(date: Date): number {
-  const d = new Date(date)
-  const day = d.getDay()
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-  d.setDate(diff)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
-}
-
-function getStartOfMonth(date: Date): number {
-  const d = new Date(date)
-  d.setDate(1)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
 }
 
 // ============================================================================
@@ -247,13 +156,13 @@ function printSummary(title: string, stats: Stats) {
   console.log()
   console.log(`  ${title}`)
   console.log(`  ${"─".repeat(50)}`)
-  console.log(`  Total Tokens:    ${padLeft(formatTokens(totalTokens), 12)}`)
-  console.log(`    Input:         ${padLeft(formatTokens(stats.input), 12)}`)
-  console.log(`    Output:        ${padLeft(formatTokens(stats.output), 12)}`)
+  console.log(`  Total Tokens:    ${padLeft(formatTokens(totalTokens, 2), 12)}`)
+  console.log(`    Input:         ${padLeft(formatTokens(stats.input, 2), 12)}`)
+  console.log(`    Output:        ${padLeft(formatTokens(stats.output, 2), 12)}`)
   if (stats.reasoning > 0) {
-    console.log(`    Reasoning:     ${padLeft(formatTokens(stats.reasoning), 12)}`)
+    console.log(`    Reasoning:     ${padLeft(formatTokens(stats.reasoning, 2), 12)}`)
   }
-  console.log(`  Cache Read:      ${padLeft(formatTokens(stats.cacheRead), 12)}`)
+  console.log(`  Cache Read:      ${padLeft(formatTokens(stats.cacheRead, 2), 12)}`)
   console.log(`  Total Cost:      ${padLeft(formatCost(stats.cost), 12)}`)
   console.log(`  Messages:        ${padLeft(stats.count.toString(), 12)}`)
   console.log()
@@ -285,7 +194,7 @@ function printTable(title: string, groups: Map<string, Stats>, labelHeader: stri
   for (const [label, stats] of sorted) {
     const totalTokens = stats.input + stats.output
     console.log(
-      `  ${padRight(label, labelWidth)}  ${padLeft(formatTokens(totalTokens), tokensWidth)}  ${padLeft(formatCost(stats.cost), costWidth)}  ${padLeft(stats.count.toString(), countWidth)}`
+      `  ${padRight(label, labelWidth)}  ${padLeft(formatTokens(totalTokens, 2), tokensWidth)}  ${padLeft(formatCost(stats.cost), costWidth)}  ${padLeft(stats.count.toString(), countWidth)}`
     )
   }
   console.log()
@@ -322,7 +231,7 @@ function printDailyBreakdown(entries: TokenEntry[]) {
   for (const [date, stats] of sorted) {
     const totalTokens = stats.input + stats.output
     console.log(
-      `  ${padRight(date, dateWidth)}  ${padLeft(formatTokens(totalTokens), tokensWidth)}  ${padLeft(formatCost(stats.cost), costWidth)}  ${padLeft(stats.count.toString(), countWidth)}`
+      `  ${padRight(date, dateWidth)}  ${padLeft(formatTokens(totalTokens, 2), tokensWidth)}  ${padLeft(formatCost(stats.cost), costWidth)}  ${padLeft(stats.count.toString(), countWidth)}`
     )
   }
   console.log()

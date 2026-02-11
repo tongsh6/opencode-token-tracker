@@ -10,6 +10,6 @@
     "declaration": true,
     "types": ["node"]
   },
-  "include": ["*.ts", "bin/**/*.ts"],
+  "include": ["*.ts", "lib/**/*.ts", "bin/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
