@@ -12,6 +12,15 @@ Real-time token usage and cost tracking plugin for [OpenCode](https://opencode.a
 - **JSONL logging** - All usage data saved locally for analysis
 - **Multi-model support** - Claude, GPT, DeepSeek, Gemini, and more
 
+## AI Engineering Framework
+
+This project uses the [AI Engineering Framework (AIEF)](https://github.com/tongsh6/ai-engineering-framework) to organize AI collaboration context and conventions.
+
+- `AGENTS.md` defines repository-level collaboration rules
+- `context/` stores technical snapshots, coding conventions, and business semantics
+
+If you are building AI-assisted engineering workflows, we strongly recommend adopting AIEF in your own repositories for clearer context management and more consistent agent outputs.
+
 ## Installation
 
 Add to your OpenCode config file (`~/.config/opencode/opencode.json`):
