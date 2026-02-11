@@ -31,7 +31,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 
 - 分支策略遵循 `CONTRIBUTING.md`：`feature/*` 或 `fix/*` -> PR 到 `dev` -> PR 到 `main`
 - 提交信息遵循 Conventional Commits（`feat|fix|docs|chore|refactor|test`）
-- 本项目无测试框架，验证方式为 `npm run build`
+- 测试框架：Node.js 内置 `node:test`，验证方式为 `npm test`（含构建 + 测试）
 - `dist/` 为构建产物目录，不手动编辑
 - 除 `@opencode-ai/plugin` 外不引入额外运行时依赖
 - 代码风格细则统一放在 `context/tech/conventions/typescript.md`
@@ -68,6 +68,9 @@ npm install
 
 # 构建与类型检查
 npm run build
+
+# 运行测试（含构建）
+npm test
 
 # 本地联调插件
 npm link
