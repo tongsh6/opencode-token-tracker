@@ -43,6 +43,7 @@ context/
   - 插件入口（`TokenTrackerPlugin`）
   - 监听 `message.updated`、`session.idle`
   - 记录 JSONL 日志并管理会话内存统计
+  - 内存 `BudgetTracker` 累加器：初始化时读一次 JSONL，之后 budget 检查零文件 I/O
   - 触发 Toast 成本提示
 
 - `bin/opencode-tokens.ts`
@@ -79,4 +80,5 @@ node dist/bin/opencode-tokens.js pricing
 
 - `BUILTIN_PRICING` 已统一到 `lib/shared.ts`，修改定价只需改一处
 - `seen` 去重集合存在上限（10,000）以控制内存
-- 预算命令会全量读取日志，日志增长后要注意性能
+- 插件 budget 检查已优化为内存累加器，不再每条消息读文件
+- CLI `budget` 命令使用 `loadEntries(since)` 仅加载相关周期数据
