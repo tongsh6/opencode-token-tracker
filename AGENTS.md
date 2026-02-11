@@ -6,7 +6,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 
 - 项目：OpenCode Token Tracker（OpenCode 插件）
 - 目标：实时追踪 token 用量与成本，提供 Toast 提示与 CLI 统计
-- 主文件：`index.ts`（插件）、`bin/opencode-tokens.ts`（CLI）
+- 主文件：`index.ts`（插件）、`bin/opencode-tokens.ts`（CLI）、`lib/shared.ts`（共享模块）
 - 技术栈：TypeScript strict + ESM（Node >= 18）
 - 发布：npm 包 `opencode-token-tracker`
 
@@ -49,7 +49,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 
 ### 关键注意事项
 
-- `BUILTIN_PRICING` 在 `index.ts` 与 `bin/opencode-tokens.ts` 各有一份，修改定价必须双改
+- `BUILTIN_PRICING` 已统一到 `lib/shared.ts`，修改定价只需改一处
 - `seen` 去重集合上限 10,000，避免内存持续增长
 - 预算检查会读取完整 JSONL，日志很大时需关注性能
 
