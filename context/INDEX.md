@@ -10,7 +10,7 @@
 | `context/tech/conventions/typescript.md` | TypeScript 风格与实现约定 |
 | `context/business/INDEX.md` | 业务目标、核心术语、语义口径入口 |
 | `context/experience/INDEX.md` | 经验库入口与索引 |
-| `context/experience/lessons/` | 复盘与经验条目（当前预留） |
+| `context/experience/lessons/` | 复盘与经验条目 |
 
 ## 使用建议
 
