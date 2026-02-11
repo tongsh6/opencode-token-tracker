@@ -2,8 +2,6 @@
 
 Real-time token usage and cost tracking plugin for [OpenCode](https://opencode.ai).
 
-![Toast Screenshot](./docs/toast-demo.png)
-
 ## Features
 
 - **Real-time Toast notifications** - See token usage and cost after each AI response
