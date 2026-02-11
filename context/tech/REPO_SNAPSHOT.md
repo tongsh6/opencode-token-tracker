@@ -36,6 +36,9 @@ context/
 
 - `lib/shared.ts`
   - 共享模块：`ModelPricing` 接口、`BUILTIN_PRICING` 定价表
+  - 配置类型：`TrackerConfig`、`ToastConfig`、`BudgetConfig`、`ConfigValidationResult`
+  - 配置验证：`validateConfig(raw)` — 将任意输入规范化为有效配置，收集 warnings
+  - 默认配置：`DEFAULT_CONFIG` 常量
   - 工具函数：`formatCost`、`formatTokens`、`getStartOfDay`/`Week`/`Month`
   - 由 `index.ts` 和 `bin/opencode-tokens.ts` 共同导入
 
@@ -79,6 +82,8 @@ node dist/bin/opencode-tokens.js pricing
 ## 维护提醒
 
 - `BUILTIN_PRICING` 已统一到 `lib/shared.ts`，修改定价只需改一处
+- 配置验证统一在 `lib/shared.ts` 的 `validateConfig()`，无效字段静默修正为默认值
+- 插件通过 Toast 展示配置警告；CLI 输出到 stderr
 - `seen` 去重集合存在上限（10,000）以控制内存
 - 插件 budget 检查已优化为内存累加器，不再每条消息读文件
 - CLI `budget` 命令使用 `loadEntries(since)` 仅加载相关周期数据
