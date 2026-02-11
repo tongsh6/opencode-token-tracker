@@ -135,3 +135,221 @@ export function getStartOfMonth(date: Date = new Date()): number {
   d.setHours(0, 0, 0, 0)
   return d.getTime()
 }
+
+// ============================================================================
+// Configuration Types & Validation
+// ============================================================================
+
+export interface ToastConfig {
+  enabled: boolean
+  duration: number
+  showOnIdle: boolean
+}
+
+export interface BudgetConfig {
+  daily?: number
+  weekly?: number
+  monthly?: number
+  warnAt: number
+}
+
+export interface TrackerConfig {
+  providers: Record<string, ModelPricing>
+  models: Record<string, ModelPricing>
+  toast: ToastConfig
+  budget: BudgetConfig
+}
+
+export const DEFAULT_CONFIG: TrackerConfig = {
+  providers: {},
+  models: {},
+  toast: {
+    enabled: true,
+    duration: 3000,
+    showOnIdle: true,
+  },
+  budget: {
+    warnAt: 0.8,
+  },
+}
+
+export interface ConfigValidationResult {
+  config: TrackerConfig
+  warnings: string[]
+}
+
+/**
+ * Validate and normalize raw config (from JSON.parse).
+ * Invalid fields are silently corrected to defaults with warnings.
+ */
+export function validateConfig(raw: unknown): ConfigValidationResult {
+  const warnings: string[] = []
+
+  if (raw === null || raw === undefined || typeof raw !== "object" || Array.isArray(raw)) {
+    warnings.push("Config is not a valid object, using defaults")
+    return { config: DEFAULT_CONFIG, warnings }
+  }
+
+  const obj = raw as Record<string, unknown>
+
+  const providers = validatePricingMap(obj["providers"], "providers", warnings)
+  const models = validatePricingMap(obj["models"], "models", warnings)
+  const toast = validateToast(obj["toast"], warnings)
+  const budget = validateBudget(obj["budget"], warnings)
+
+  return {
+    config: { providers, models, toast, budget },
+    warnings,
+  }
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v)
+}
+
+function validatePricingMap(
+  raw: unknown,
+  section: string,
+  warnings: string[],
+): Record<string, ModelPricing> {
+  if (raw === undefined || raw === null) return {}
+
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    warnings.push(`${section} should be an object, ignoring`)
+    return {}
+  }
+
+  const result: Record<string, ModelPricing> = {}
+  const entries = raw as Record<string, unknown>
+
+  for (const [key, value] of Object.entries(entries)) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      warnings.push(`${section}.${key} should be a pricing object, ignoring`)
+      continue
+    }
+
+    const p = value as Record<string, unknown>
+
+    if (!isFiniteNumber(p["input"]) || p["input"] < 0) {
+      warnings.push(`${section}.${key}.input should be a non-negative number, ignoring entry`)
+      continue
+    }
+    if (!isFiniteNumber(p["output"]) || p["output"] < 0) {
+      warnings.push(`${section}.${key}.output should be a non-negative number, ignoring entry`)
+      continue
+    }
+
+    const pricing: ModelPricing = {
+      input: p["input"],
+      output: p["output"],
+    }
+
+    if (p["cacheRead"] !== undefined) {
+      if (isFiniteNumber(p["cacheRead"]) && p["cacheRead"] >= 0) {
+        pricing.cacheRead = p["cacheRead"]
+      } else {
+        warnings.push(`${section}.${key}.cacheRead should be a non-negative number, ignoring field`)
+      }
+    }
+
+    if (p["cacheWrite"] !== undefined) {
+      if (isFiniteNumber(p["cacheWrite"]) && p["cacheWrite"] >= 0) {
+        pricing.cacheWrite = p["cacheWrite"]
+      } else {
+        warnings.push(`${section}.${key}.cacheWrite should be a non-negative number, ignoring field`)
+      }
+    }
+
+    result[key] = pricing
+  }
+
+  return result
+}
+
+function validateToast(raw: unknown, warnings: string[]): ToastConfig {
+  const defaults = DEFAULT_CONFIG.toast
+
+  if (raw === undefined || raw === null) return { ...defaults }
+
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    warnings.push("toast should be an object, using defaults")
+    return { ...defaults }
+  }
+
+  const obj = raw as Record<string, unknown>
+  const result = { ...defaults }
+
+  if (obj["enabled"] !== undefined) {
+    if (typeof obj["enabled"] === "boolean") {
+      result.enabled = obj["enabled"]
+    } else {
+      warnings.push("toast.enabled should be a boolean, using default")
+    }
+  }
+
+  if (obj["duration"] !== undefined) {
+    if (isFiniteNumber(obj["duration"]) && obj["duration"] > 0) {
+      result.duration = obj["duration"]
+    } else {
+      warnings.push("toast.duration should be a positive number, using default")
+    }
+  }
+
+  if (obj["showOnIdle"] !== undefined) {
+    if (typeof obj["showOnIdle"] === "boolean") {
+      result.showOnIdle = obj["showOnIdle"]
+    } else {
+      warnings.push("toast.showOnIdle should be a boolean, using default")
+    }
+  }
+
+  return result
+}
+
+function validateBudget(raw: unknown, warnings: string[]): BudgetConfig {
+  const defaults = DEFAULT_CONFIG.budget
+
+  if (raw === undefined || raw === null) return { ...defaults }
+
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    warnings.push("budget should be an object, using defaults")
+    return { ...defaults }
+  }
+
+  const obj = raw as Record<string, unknown>
+  const result: BudgetConfig = { warnAt: defaults.warnAt }
+
+  if (obj["daily"] !== undefined) {
+    if (isFiniteNumber(obj["daily"]) && obj["daily"] > 0) {
+      result.daily = obj["daily"]
+    } else {
+      warnings.push("budget.daily should be a positive number, ignoring")
+    }
+  }
+
+  if (obj["weekly"] !== undefined) {
+    if (isFiniteNumber(obj["weekly"]) && obj["weekly"] > 0) {
+      result.weekly = obj["weekly"]
+    } else {
+      warnings.push("budget.weekly should be a positive number, ignoring")
+    }
+  }
+
+  if (obj["monthly"] !== undefined) {
+    if (isFiniteNumber(obj["monthly"]) && obj["monthly"] > 0) {
+      result.monthly = obj["monthly"]
+    } else {
+      warnings.push("budget.monthly should be a positive number, ignoring")
+    }
+  }
+
+  if (obj["warnAt"] !== undefined) {
+    if (isFiniteNumber(obj["warnAt"]) && obj["warnAt"] > 0 && obj["warnAt"] <= 1) {
+      result.warnAt = obj["warnAt"]
+    } else {
+      warnings.push("budget.warnAt should be a number between 0 and 1 (exclusive-inclusive), using default")
+    }
+  }
+
+  return result
+}

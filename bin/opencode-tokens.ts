@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import type { ModelPricing } from "../lib/shared.js"
-import { BUILTIN_PRICING, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth } from "../lib/shared.js"
+import type { ModelPricing, TrackerConfig } from "../lib/shared.js"
+import { BUILTIN_PRICING, DEFAULT_CONFIG, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "../lib/shared.js"
 import { readFileSync, existsSync, writeFileSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
@@ -39,22 +39,6 @@ interface Stats {
   cacheWrite: number
   cost: number
   count: number
-}
-
-interface Config {
-  providers?: Record<string, ModelPricing>
-  models?: Record<string, ModelPricing>
-  toast?: {
-    enabled?: boolean
-    duration?: number
-    showOnIdle?: boolean
-  }
-  budget?: {
-    daily?: number
-    weekly?: number
-    monthly?: number
-    warnAt?: number
-  }
 }
 
 // ============================================================================
@@ -97,13 +81,22 @@ function loadEntries(since?: number): TokenEntry[] {
   return entries
 }
 
-function loadConfig(): Config {
+function loadConfig(): TrackerConfig {
   try {
     if (existsSync(CONFIG_FILE)) {
-      return JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+      const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+      const result = validateConfig(raw)
+      if (result.warnings.length > 0) {
+        for (const w of result.warnings) {
+          console.error(`  [token-tracker] config warning: ${w}`)
+        }
+      }
+      return result.config
     }
-  } catch {}
-  return {}
+  } catch {
+    console.error("  [token-tracker] config warning: Config file is not valid JSON, using defaults")
+  }
+  return DEFAULT_CONFIG
 }
 
 // ============================================================================
@@ -433,7 +426,7 @@ function cmdConfig(action?: string) {
       return !hasMatch
     })
     
-    const exampleConfig: Config = {
+    const exampleConfig: TrackerConfig = {
       providers: {},
       models: {},
       toast: {
