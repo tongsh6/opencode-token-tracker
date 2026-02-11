@@ -596,11 +596,19 @@ function cmdBudget() {
     return "🟢"
   }
   
-  const entries = loadEntries()
+  // Calculate the earliest period start to minimize data loaded
+  const dayStart = getStartOfDay(now)
+  const weekStart = getStartOfWeek(now)
+  const monthStart = getStartOfMonth(now)
+  const earliestSince = Math.min(
+    budget.daily ? dayStart : Infinity,
+    budget.weekly ? weekStart : Infinity,
+    budget.monthly ? monthStart : Infinity,
+  )
+  const entries = loadEntries(earliestSince)
   
   // Daily budget
   if (budget.daily) {
-    const dayStart = getStartOfDay(now)
     const dayEntries = entries.filter(e => e._ts >= dayStart)
     const spent = dayEntries.reduce((sum, e) => sum + (e.cost ?? 0), 0)
     const pct = spent / budget.daily
@@ -614,7 +622,6 @@ function cmdBudget() {
   
   // Weekly budget
   if (budget.weekly) {
-    const weekStart = getStartOfWeek(now)
     const weekEntries = entries.filter(e => e._ts >= weekStart)
     const spent = weekEntries.reduce((sum, e) => sum + (e.cost ?? 0), 0)
     const pct = spent / budget.weekly
@@ -628,7 +635,6 @@ function cmdBudget() {
   
   // Monthly budget
   if (budget.monthly) {
-    const monthStart = getStartOfMonth(now)
     const monthEntries = entries.filter(e => e._ts >= monthStart)
     const spent = monthEntries.reduce((sum, e) => sum + (e.cost ?? 0), 0)
     const pct = spent / budget.monthly
