@@ -14,7 +14,7 @@ export interface ModelPricing {
 }
 
 // ============================================================================
-// Built-in Pricing (USD per 1M tokens) - Updated 2026-02-05
+// Built-in Pricing (USD per 1M tokens) - Updated 2026-02-11
 // Sources:
 // - Anthropic: https://www.anthropic.com/pricing#api
 // - OpenAI: https://openai.com/api/pricing/
@@ -24,7 +24,9 @@ export interface ModelPricing {
 
 export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   // Anthropic Claude (https://www.anthropic.com/pricing#api)
-  // Opus 4.5: $5 input, $25 output, cache write $6.25, cache read $0.50
+  // Opus 4.6: $5 input, $25 output (≤200K), cache write $6.25, cache read $0.50
+  "claude-opus-4.6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  // Opus 4.5 (legacy): same pricing as Opus 4.6
   "claude-opus-4.5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   // Sonnet 4.5: $3 input, $15 output (≤200K), cache write $3.75, cache read $0.30
   "claude-sonnet-4.5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
@@ -69,16 +71,19 @@ export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   // Gemini 3 Pro Preview: $2 input, $12 output (≤200K)
   "gemini-3-pro": { input: 2, output: 12, cacheRead: 0.2 },
   "gemini-3-pro-preview": { input: 2, output: 12, cacheRead: 0.2 },
-  // Gemini 3 Flash Preview: $0.5 input
-  "gemini-3-flash": { input: 0.5, output: 2, cacheRead: 0.05 },
-  "gemini-3-flash-preview": { input: 0.5, output: 2, cacheRead: 0.05 },
+  // Gemini 3 Flash Preview: $0.5 input, $3 output
+  "gemini-3-flash": { input: 0.5, output: 3, cacheRead: 0.05 },
+  "gemini-3-flash-preview": { input: 0.5, output: 3, cacheRead: 0.05 },
   // Gemini 2.5 Pro: $1.25 input, $10 output (≤200K)
   "gemini-2.5-pro": { input: 1.25, output: 10, cacheRead: 0.125 },
+  // Gemini 2.5 Flash: $0.3 input, $2.5 output
+  "gemini-2.5-flash": { input: 0.3, output: 2.5, cacheRead: 0.03 },
   // Gemini 2.5 Flash Lite: $0.1 input
-  "gemini-2.5-flash": { input: 0.1, output: 0.4, cacheRead: 0.01 },
   "gemini-2.5-flash-lite": { input: 0.1, output: 0.4, cacheRead: 0.01 },
   // Gemini 2.0 Flash: $0.15 input
   "gemini-2.0-flash": { input: 0.15, output: 0.6, cacheRead: 0.015 },
+  // Gemini 2.0 Flash Lite: $0.075 input, $0.3 output
+  "gemini-2.0-flash-lite": { input: 0.075, output: 0.3, cacheRead: 0.0075 },
 
   // Fallback for unknown models
   "_default": { input: 1, output: 4 },
