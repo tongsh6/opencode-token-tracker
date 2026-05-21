@@ -13,6 +13,10 @@ export interface ModelPricing {
   cacheWrite?: number // per 1M cache write tokens
 }
 
+export interface ProviderModelPricingMap {
+  [provider: string]: ModelPricing
+}
+
 // ============================================================================
 // Built-in Pricing (USD per 1M tokens) - Updated 2026-02-11
 // Sources:
@@ -155,7 +159,7 @@ export interface BudgetConfig {
 
 export interface TrackerConfig {
   providers: Record<string, ModelPricing>
-  models: Record<string, ModelPricing>
+  models: Record<string, ModelPricing | ProviderModelPricingMap>
   toast: ToastConfig
   budget: BudgetConfig
 }
@@ -193,7 +197,7 @@ export function validateConfig(raw: unknown): ConfigValidationResult {
   const obj = raw as Record<string, unknown>
 
   const providers = validatePricingMap(obj["providers"], "providers", warnings)
-  const models = validatePricingMap(obj["models"], "models", warnings)
+  const models = validatePricingMap(obj["models"], "models", warnings, true)
   const toast = validateToast(obj["toast"], warnings)
   const budget = validateBudget(obj["budget"], warnings)
 
@@ -211,7 +215,20 @@ function validatePricingMap(
   raw: unknown,
   section: string,
   warnings: string[],
-): Record<string, ModelPricing> {
+  allowProviderModels: true,
+): Record<string, ModelPricing | ProviderModelPricingMap>
+function validatePricingMap(
+  raw: unknown,
+  section: string,
+  warnings: string[],
+  allowProviderModels?: false,
+): Record<string, ModelPricing>
+function validatePricingMap(
+  raw: unknown,
+  section: string,
+  warnings: string[],
+  allowProviderModels: boolean = false,
+): Record<string, ModelPricing | ProviderModelPricingMap> {
   if (raw === undefined || raw === null) return {}
 
   if (typeof raw !== "object" || Array.isArray(raw)) {
@@ -219,7 +236,7 @@ function validatePricingMap(
     return {}
   }
 
-  const result: Record<string, ModelPricing> = {}
+  const result: Record<string, ModelPricing | ProviderModelPricingMap> = {}
   const entries = raw as Record<string, unknown>
 
   for (const [key, value] of Object.entries(entries)) {
@@ -228,42 +245,147 @@ function validatePricingMap(
       continue
     }
 
-    const p = value as Record<string, unknown>
-
-    if (!isFiniteNumber(p["input"]) || p["input"] < 0) {
-      warnings.push(`${section}.${key}.input should be a non-negative number, ignoring entry`)
-      continue
-    }
-    if (!isFiniteNumber(p["output"]) || p["output"] < 0) {
-      warnings.push(`${section}.${key}.output should be a non-negative number, ignoring entry`)
+    const entryPath = `${section}.${key}`
+    const parsedPricing = validatePricingObject(value as Record<string, unknown>, entryPath, warnings)
+    if (parsedPricing) {
+      result[key] = parsedPricing
       continue
     }
 
-    const pricing: ModelPricing = {
-      input: p["input"],
-      output: p["output"],
+    if (!allowProviderModels) {
+      warnings.push(`${entryPath} should be a pricing object, ignoring`)
+      continue
     }
 
-    if (p["cacheRead"] !== undefined) {
-      if (isFiniteNumber(p["cacheRead"]) && p["cacheRead"] >= 0) {
-        pricing.cacheRead = p["cacheRead"]
-      } else {
-        warnings.push(`${section}.${key}.cacheRead should be a non-negative number, ignoring field`)
-      }
+    const providerPricing = validateNestedPricingMap(value as Record<string, unknown>, entryPath, warnings)
+    if (Object.keys(providerPricing).length > 0) {
+      result[key] = providerPricing
+    } else {
+      warnings.push(`${entryPath} should define at least one valid provider pricing, ignoring entry`)
     }
-
-    if (p["cacheWrite"] !== undefined) {
-      if (isFiniteNumber(p["cacheWrite"]) && p["cacheWrite"] >= 0) {
-        pricing.cacheWrite = p["cacheWrite"]
-      } else {
-        warnings.push(`${section}.${key}.cacheWrite should be a non-negative number, ignoring field`)
-      }
-    }
-
-    result[key] = pricing
   }
 
   return result
+}
+
+function validateNestedPricingMap(
+  raw: Record<string, unknown>,
+  path: string,
+  warnings: string[],
+): ProviderModelPricingMap {
+  const result: ProviderModelPricingMap = {}
+
+  for (const [provider, value] of Object.entries(raw)) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      warnings.push(`${path}.${provider} should be a pricing object, ignoring`)
+      continue
+    }
+
+    const pricing = validatePricingObject(value as Record<string, unknown>, `${path}.${provider}`, warnings)
+    if (pricing) {
+      result[provider] = pricing
+    }
+  }
+
+  return result
+}
+
+function validatePricingObject(
+  raw: Record<string, unknown>,
+  path: string,
+  warnings: string[],
+): ModelPricing | undefined {
+  if (!hasFlatPricingStructure(raw)) {
+    return undefined
+  }
+
+  if (!isFiniteNumber(raw["input"]) || raw["input"] < 0) {
+    warnings.push(`${path}.input should be a non-negative number, ignoring entry`)
+    return undefined
+  }
+  if (!isFiniteNumber(raw["output"]) || raw["output"] < 0) {
+    warnings.push(`${path}.output should be a non-negative number, ignoring entry`)
+    return undefined
+  }
+
+  const pricing: ModelPricing = {
+    input: raw["input"],
+    output: raw["output"],
+  }
+
+  if (raw["cacheRead"] !== undefined) {
+    if (isFiniteNumber(raw["cacheRead"]) && raw["cacheRead"] >= 0) {
+      pricing.cacheRead = raw["cacheRead"]
+    } else {
+      warnings.push(`${path}.cacheRead should be a non-negative number, ignoring field`)
+    }
+  }
+
+  if (raw["cacheWrite"] !== undefined) {
+    if (isFiniteNumber(raw["cacheWrite"]) && raw["cacheWrite"] >= 0) {
+      pricing.cacheWrite = raw["cacheWrite"]
+    } else {
+      warnings.push(`${path}.cacheWrite should be a non-negative number, ignoring field`)
+    }
+  }
+
+  return pricing
+}
+
+function hasFlatPricingStructure(raw: Record<string, unknown> | ModelPricing | ProviderModelPricingMap): boolean {
+  const hasPricingField = "input" in raw || "output" in raw || "cacheRead" in raw || "cacheWrite" in raw
+  if (!hasPricingField) {
+    return false
+  }
+
+  return !isPlainObject(raw["input"])
+    && !isPlainObject(raw["output"])
+    && !isPlainObject(raw["cacheRead"])
+    && !isPlainObject(raw["cacheWrite"])
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function isDirectModelPricing(value: ModelPricing | ProviderModelPricingMap): value is ModelPricing {
+  return hasFlatPricingStructure(value)
+    && isFiniteNumber(value.input)
+    && isFiniteNumber(value.output)
+    && (value.cacheRead === undefined || isFiniteNumber(value.cacheRead))
+    && (value.cacheWrite === undefined || isFiniteNumber(value.cacheWrite))
+}
+
+function resolveModelConfigEntry(
+  entry: ModelPricing | ProviderModelPricingMap | undefined,
+  provider: string,
+): ModelPricing | undefined {
+  if (!entry) return undefined
+  if (isDirectModelPricing(entry)) return entry
+  return entry[provider]
+}
+
+export function findModelConfigPricing(
+  models: TrackerConfig["models"],
+  model: string,
+  provider: string,
+): ModelPricing | undefined {
+  const exactMatch = resolveModelConfigEntry(models[model], provider)
+  if (exactMatch) {
+    return exactMatch
+  }
+
+  const modelLower = model.toLowerCase()
+  for (const [key, entry] of Object.entries(models)) {
+    if (modelLower.includes(key.toLowerCase())) {
+      const partialMatch = resolveModelConfigEntry(entry, provider)
+      if (partialMatch) {
+        return partialMatch
+      }
+    }
+  }
+
+  return undefined
 }
 
 function validateToast(raw: unknown, warnings: string[]): ToastConfig {

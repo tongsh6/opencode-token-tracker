@@ -285,9 +285,10 @@ token 记录保存在：
 定价解析顺序（命中即止）：
 
 1. **Provider 覆盖** — 为某个 provider 的所有模型统一设置
-2. **用户 model 配置** — 为特定模型自定义定价
-3. **内置定价** — 默认定价表
-4. **默认回退** — $1/M input，$4/M output
+2. **按 provider 的 model 配置** — 同一模型在不同 provider 下使用不同定价
+3. **用户 model 配置** — 为特定模型自定义通用定价
+4. **内置定价** — 默认定价表
+5. **默认回退** — $1/M input，$4/M output
 
 #### 示例：免费 provider
 
@@ -314,6 +315,23 @@ token 记录保存在：
   }
 }
 ```
+
+#### 示例：同一模型在不同 provider 下使用不同价格
+
+如果同一个模型在不同 provider 下价格不同，可以在模型名下继续按 provider 配置：
+
+```json
+{
+  "models": {
+    "deepseek/deepseek-v4-flash": {
+      "openrouter": { "input": 0.14, "output": 0.28, "cacheRead": 0.0028 },
+      "siliconflow": { "input": 0.2, "output": 0.4 }
+    }
+  }
+}
+```
+
+这种写法可以和原来的扁平 `models` 配置同时使用。
 
 ### 预算设置
 

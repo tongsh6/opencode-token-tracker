@@ -300,9 +300,10 @@ All prices are in **USD per 1 million tokens**:
 Pricing is resolved in this order (first match wins):
 
 1. **Provider-level** - Override all models for a provider
-2. **User model config** - Custom model pricing in config file
-3. **Built-in pricing** - Default pricing table
-4. **Fallback** - $1/M input, $4/M output
+2. **Provider-specific model config** - Custom pricing for the same model under different providers
+3. **User model config** - Generic custom model pricing in config file
+4. **Built-in pricing** - Default pricing table
+5. **Fallback** - $1/M input, $4/M output
 
 #### Example: Free providers
 
@@ -329,6 +330,23 @@ Override or add pricing for specific models (prices in USD per 1M tokens):
   }
 }
 ```
+
+#### Example: Same model, different provider pricing
+
+If the same model has different prices under different providers, nest provider names under the model key:
+
+```json
+{
+  "models": {
+    "deepseek/deepseek-v4-flash": {
+      "openrouter": { "input": 0.14, "output": 0.28, "cacheRead": 0.0028 },
+      "siliconflow": { "input": 0.2, "output": 0.4 }
+    }
+  }
+}
+```
+
+You can still mix this with the original flat model pricing format.
 
 ### Toast Settings
 
