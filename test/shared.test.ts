@@ -413,4 +413,17 @@ describe("findModelConfigPricing", () => {
       { input: 1, output: 2, cacheRead: 0.1 }
     )
   })
+
+  it("should support partial model matches for direct model pricing", () => {
+    const result = validateConfig({
+      models: {
+        "my-model": { input: 1, output: 2 },
+      },
+    })
+
+    assert.deepEqual(
+      findModelConfigPricing(result.config.models, "prefix/my-model", "any-provider"),
+      { input: 1, output: 2 }
+    )
+  })
 })

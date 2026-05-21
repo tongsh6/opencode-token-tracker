@@ -295,7 +295,7 @@ function validatePricingObject(
   path: string,
   warnings: string[],
 ): ModelPricing | undefined {
-  if (!hasPricingFields(raw)) {
+  if (!hasSomePricingFields(raw)) {
     return undefined
   }
 
@@ -332,12 +332,12 @@ function validatePricingObject(
   return pricing
 }
 
-function hasPricingFields(raw: Record<string, unknown>): boolean {
+function hasSomePricingFields(raw: Record<string, unknown>): boolean {
   return "input" in raw || "output" in raw || "cacheRead" in raw || "cacheWrite" in raw
 }
 
 function isDirectModelPricing(value: ModelPricing | ProviderModelPricingMap): value is ModelPricing {
-  return "input" in value && "output" in value
+  return typeof value.input === "number" && typeof value.output === "number"
 }
 
 function resolveModelConfigEntry(
