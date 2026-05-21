@@ -313,6 +313,23 @@ describe("validateConfig", () => {
     assert.ok(result.warnings.some(w => w.includes("bad-provider.input")))
   })
 
+  it("should allow provider-specific model pricing even when provider name matches pricing fields", () => {
+    const result = validateConfig({
+      models: {
+        "field-named-provider-model": {
+          "input": { input: 0.14, output: 0.28 },
+          "output": { input: 0.2, output: 0.4 },
+        },
+      },
+    })
+
+    assert.equal(result.warnings.length, 0)
+    assert.deepEqual(result.config.models["field-named-provider-model"], {
+      "input": { input: 0.14, output: 0.28 },
+      "output": { input: 0.2, output: 0.4 },
+    })
+  })
+
   it("should warn and use default toast for invalid toast fields", () => {
     const result = validateConfig({
       toast: { enabled: "yes", duration: -100, showOnIdle: 1 },
@@ -397,6 +414,21 @@ describe("findModelConfigPricing", () => {
 
     assert.deepEqual(
       findModelConfigPricing(result.config.models, "deepseek/deepseek-v4-flash", "openrouter"),
+      { input: 0.14, output: 0.28 }
+    )
+  })
+
+  it("should resolve provider-specific model pricing for providers named like pricing fields", () => {
+    const result = validateConfig({
+      models: {
+        "field-named-provider-model": {
+          "input": { input: 0.14, output: 0.28 },
+        },
+      },
+    })
+
+    assert.deepEqual(
+      findModelConfigPricing(result.config.models, "field-named-provider-model", "input"),
       { input: 0.14, output: 0.28 }
     )
   })
