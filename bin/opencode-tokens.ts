@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import type { ModelPricing, TrackerConfig } from "../lib/shared.js"
-import { BUILTIN_PRICING, DEFAULT_CONFIG, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "../lib/shared.js"
+import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "../lib/shared.js"
 import { readFileSync, existsSync, writeFileSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
@@ -385,7 +385,7 @@ function cmdModels() {
     let status = "built-in"
     if (config.providers?.[provider]) {
       status = "provider cfg"
-    } else if (config.models?.[model]) {
+    } else if (findModelConfigPricing(config.models, model, provider)) {
       status = "model cfg"
     } else if (!BUILTIN_PRICING[model]) {
       // Check partial match

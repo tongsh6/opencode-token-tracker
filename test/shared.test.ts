@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert"
 import {
   BUILTIN_PRICING,
   DEFAULT_CONFIG,
+  findModelConfigPricing,
   formatCost,
   formatTokens,
   getStartOfDay,
@@ -239,6 +240,22 @@ describe("validateConfig", () => {
     assert.equal(result.config.budget.warnAt, 0.9)
   })
 
+  it("should accept provider-specific model pricing", () => {
+    const result = validateConfig({
+      models: {
+        "deepseek/deepseek-v4-flash": {
+          "openrouter": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
+          "siliconflow": { input: 0.2, output: 0.4 },
+        },
+      },
+    })
+    assert.equal(result.warnings.length, 0)
+    assert.deepEqual(result.config.models["deepseek/deepseek-v4-flash"], {
+      "openrouter": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
+      "siliconflow": { input: 0.2, output: 0.4 },
+    })
+  })
+
   it("should warn and ignore non-object providers/models", () => {
     const result = validateConfig({ providers: "invalid", models: 123 })
     assert.deepEqual(result.config.providers, {})
@@ -279,6 +296,21 @@ describe("validateConfig", () => {
     assert.equal(m1.cacheWrite, undefined)
     assert.ok(result.warnings.some(w => w.includes("cacheRead")))
     assert.ok(result.warnings.some(w => w.includes("cacheWrite")))
+  })
+
+  it("should warn and skip invalid provider-specific model pricing entries", () => {
+    const result = validateConfig({
+      models: {
+        "deepseek/deepseek-v4-flash": {
+          "openrouter": { input: 0.14, output: 0.28 },
+          "bad-provider": { input: "free", output: 0.28 },
+        },
+      },
+    })
+    assert.deepEqual(result.config.models["deepseek/deepseek-v4-flash"], {
+      "openrouter": { input: 0.14, output: 0.28 },
+    })
+    assert.ok(result.warnings.some(w => w.includes("bad-provider.input")))
   })
 
   it("should warn and use default toast for invalid toast fields", () => {
@@ -331,5 +363,54 @@ describe("validateConfig", () => {
     assert.equal(result.config.budget.warnAt, DEFAULT_CONFIG.budget.warnAt)
     assert.equal(result.config.models["m"], undefined)
     assert.ok(result.warnings.length >= 3)
+  })
+})
+
+describe("findModelConfigPricing", () => {
+  it("should prefer provider-specific model pricing when available", () => {
+    const result = validateConfig({
+      models: {
+        "deepseek/deepseek-v4-flash": {
+          "openrouter": { input: 0.14, output: 0.28 },
+        },
+      },
+    })
+
+    assert.deepEqual(
+      findModelConfigPricing(result.config.models, "deepseek/deepseek-v4-flash", "openrouter"),
+      { input: 0.14, output: 0.28 }
+    )
+    assert.equal(
+      findModelConfigPricing(result.config.models, "deepseek/deepseek-v4-flash", "siliconflow"),
+      undefined
+    )
+  })
+
+  it("should support partial model matches for provider-specific pricing", () => {
+    const result = validateConfig({
+      models: {
+        "deepseek-v4-flash": {
+          "openrouter": { input: 0.14, output: 0.28 },
+        },
+      },
+    })
+
+    assert.deepEqual(
+      findModelConfigPricing(result.config.models, "deepseek/deepseek-v4-flash", "openrouter"),
+      { input: 0.14, output: 0.28 }
+    )
+  })
+
+  it("should keep supporting direct model pricing", () => {
+    const result = validateConfig({
+      models: {
+        "my-model": { input: 1, output: 2, cacheRead: 0.1 },
+      },
+    })
+
+    assert.deepEqual(
+      findModelConfigPricing(result.config.models, "my-model", "any-provider"),
+      { input: 1, output: 2, cacheRead: 0.1 }
+    )
   })
 })
