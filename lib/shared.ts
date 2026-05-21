@@ -295,7 +295,7 @@ function validatePricingObject(
   path: string,
   warnings: string[],
 ): ModelPricing | undefined {
-  if (!isDirectPricingCandidate(raw)) {
+  if (!hasFlatPricingStructure(raw)) {
     return undefined
   }
 
@@ -332,7 +332,7 @@ function validatePricingObject(
   return pricing
 }
 
-function isDirectPricingCandidate(raw: Record<string, unknown>): boolean {
+function hasFlatPricingStructure(raw: Record<string, unknown> | ModelPricing | ProviderModelPricingMap): boolean {
   const hasPricingField = "input" in raw || "output" in raw || "cacheRead" in raw || "cacheWrite" in raw
   if (!hasPricingField) {
     return false
@@ -349,7 +349,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isDirectModelPricing(value: ModelPricing | ProviderModelPricingMap): value is ModelPricing {
-  return isFiniteNumber(value.input) && isFiniteNumber(value.output)
+  return hasFlatPricingStructure(value)
+    && isFiniteNumber(value.input)
+    && isFiniteNumber(value.output)
+    && (value.cacheRead === undefined || isFiniteNumber(value.cacheRead))
+    && (value.cacheWrite === undefined || isFiniteNumber(value.cacheWrite))
 }
 
 function resolveModelConfigEntry(
