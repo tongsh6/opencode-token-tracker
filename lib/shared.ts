@@ -257,6 +257,13 @@ function validatePricingMap(
       continue
     }
 
+    // If the structure looks like flat pricing (has pricing field keys),
+    // don't fall through to nested provider pricing — validatePricingObject
+    // already issued the relevant warning for malformed flat pricing.
+    if (hasFlatPricingStructure(value as Record<string, unknown>)) {
+      continue
+    }
+
     const providerPricing = validateNestedPricingMap(value as Record<string, unknown>, entryPath, warnings)
     if (Object.keys(providerPricing).length > 0) {
       result[key] = providerPricing

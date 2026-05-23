@@ -284,6 +284,18 @@ describe("validateConfig", () => {
     assert.ok(result.warnings.length >= 4)
   })
 
+  it("should produce one clear warning for malformed flat pricing (not nested fallthrough noise)", () => {
+    const result = validateConfig({
+      models: {
+        "my-model": { input: "free", output: 2 },
+      },
+    })
+
+    assert.equal(result.config.models["my-model"], undefined)
+    assert.equal(result.warnings.length, 1)
+    assert.ok(result.warnings[0].includes("input should be a non-negative number"))
+  })
+
   it("should warn and ignore invalid cacheRead/cacheWrite but keep entry", () => {
     const result = validateConfig({
       models: {
