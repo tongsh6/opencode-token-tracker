@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.6] - 2026-05-23
+
+### Fixed
+
+- Prevent double-billing during assistant streaming updates. The previous heuristic (`role === "assistant" && !time.completed`) relied on a hard-coded role string and ignored the provider's `finish` reason. Event tracing on real OpenCode sessions showed that `finish` arrives in the same frame as the final tokens but ~3 ms before `time.completed`, so a stream interrupted between those two frames could lose the final tokens. The guard is now driven by `info.modelID` (presence of a model identifier) combined with `time.completed || finish`, eliminating the role-string assumption and closing the last-frame gap.
+- Restore the conservative error semantics of `loadCostsSince`: on IO failure it now returns `0` (as in 1.5.5 and earlier) instead of the partially-accumulated value introduced during the reverse-parser port, so downstream budget checks are never based on an under-counted total.
+- Include `cacheRead` and `cacheWrite` when deciding whether a message has billable tokens (`hasTokens`) and when building the deduplication key, so cache-only updates and cache-field-only changes can no longer slip through unrecorded.
+- Stop writing `{"type":"init"}` markers to `tokens.jsonl`. OpenCode loads the plugin in multiple worker processes (LSP, tool runner, etc.), causing several no-op init lines per launch; these have no billing value and only inflated the log.
+
+### Changed
+
+- Apply the same reverse chunk-based parser introduced for the CLI in 1.5.3 to the in-plugin budget loaders (`loadCostsSince` and `initBudgetTracker`). Initial budget reconstruction on large logs is now bounded by the active budget window rather than the full file size. `initBudgetTracker` becomes async to support `fs/promises.open`; the plugin bootstrap awaits it so budget state is ready before the first event is dispatched.
+
+### Internal
+
+- Extend `MessageInfo` with `finish` and reuse the existing `modelID` field to recognise AI-generated messages without role string matching.
+- Type the async `FileHandle` instead of `any` in `initBudgetTracker`.
+
 ## [1.5.5] - 2026-05-23
 
 ### Added
