@@ -8,6 +8,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release   # secrets are scoped to the "release" environment
     permissions:
       contents: write    # create GitHub Release
       id-token: write    # npm provenance
