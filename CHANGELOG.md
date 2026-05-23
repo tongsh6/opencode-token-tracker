@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.3] - 2026-05-24
+
+### Fixed
+
+- Trend chart uses per-row intersection rendering for clean single-character diagonals, proper horizontal `───` connections, and correct corner characters at slope-to-flat transitions
+
 ## [1.6.2] - 2026-05-24
 
 ### Fixed
