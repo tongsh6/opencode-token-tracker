@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.2] - 2026-05-24
+
+### Fixed
+
+- `opencode-tokens trend` chart rendering produces clean single-line diagonals using per-row intersection math instead of thick filled regions
+
 ## [1.6.1] - 2026-05-24
 
 ### Fixed

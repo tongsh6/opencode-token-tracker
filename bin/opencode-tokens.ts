@@ -1093,10 +1093,17 @@ function cmdTrend(flags: Map<string, string | boolean>) {
     return
   }
 
-  // Build chart
+  // Build chart — pixel-based rendering
   const cols = values.map((v) => ({ value: v, y: Math.round((v / maxVal) * (H - 1)) }))
   const chartWidth = Math.max(width - 12, 20)
-  const xStep = Math.max(2, Math.floor(chartWidth / sorted.length))
+
+  // Map data points to pixel x-positions (evenly spaced across chartWidth)
+  const px: number[] = []
+  const py: number[] = []
+  for (let i = 0; i < cols.length; i++) {
+    px.push(cols.length === 1 ? Math.floor(chartWidth / 2) : Math.round((i / (cols.length - 1)) * (chartWidth - 1)))
+    py.push(cols[i].y)
+  }
 
   const yLabelStep = Math.max(1, Math.floor(H / 5))
   const lines: string[] = []
@@ -1108,35 +1115,51 @@ function cmdTrend(flags: Map<string, string | boolean>) {
       ? metric === "tokens" ? formatTokens(valAtRow) : metric === "messages" ? String(Math.round(valAtRow)) : formatCost(valAtRow)
       : ""
     line += padLeft(label, 9)
-
     line += row === 0 ? " ┼" : " ┤"
 
-    for (let ci = 0; ci < cols.length; ci++) {
-      const col = cols[ci]
-      const nextY = ci < cols.length - 1 ? cols[ci + 1].y : col.y
+    // Build a sparse array of characters at specific x-positions for this row
+    const chars: { x: number; c: string }[] = []
 
-      if (col.y === row) {
-        if (ci > 0) {
-          const prevY = cols[ci - 1].y
-          if (prevY < col.y && nextY <= col.y) line += "╭"
-          else if (prevY > col.y && nextY >= col.y) line += "╰"
-          else if (prevY < col.y || nextY < col.y) line += "╭"
-          else if (prevY > col.y || nextY > col.y) line += "╰"
-          else line += "─"
+    // Data points that land on this row
+    for (let i = 0; i < px.length; i++) {
+      if (py[i] === row) {
+        if (cols.length === 1) {
+          chars.push({ x: px[i], c: "─" })
         } else {
-          line += nextY > col.y ? "╭" : nextY < col.y ? "╰" : "─"
-        }
-        if (xStep > 1 && ci < cols.length - 1 && nextY === row) {
-          line += "─".repeat(xStep - 1)
-        }
-      } else if (ci > 0 && ci < cols.length) {
-        const prevY = cols[ci - 1].y
-        if ((prevY < row && col.y > row) || (prevY > row && col.y < row)) {
-          line += prevY < col.y ? "╱" : "╲"
-        } else {
-          line += " ".repeat(xStep > 1 && nextY !== row ? 1 : Math.min(xStep, 1))
+          const prevSlope = i > 0 ? py[i] - py[i - 1] : 0
+          const nextSlope = i < px.length - 1 ? py[i + 1] - py[i] : 0
+          let c = "─"
+          if (i === 0) c = nextSlope > 0 ? "╭" : nextSlope < 0 ? "╰" : "─"
+          else if (i === px.length - 1) c = prevSlope > 0 ? "╮" : prevSlope < 0 ? "╯" : "─"
+          else if (prevSlope > 0 && nextSlope > 0) c = "╭"
+          else if (prevSlope < 0 && nextSlope < 0) c = "╰"
+          else if (prevSlope > 0 && nextSlope < 0) c = "╮"
+          else if (prevSlope < 0 && nextSlope > 0) c = "╯"
+          chars.push({ x: px[i], c })
         }
       }
+    }
+
+    // Line segments crossing this row (exact x of intersection)
+    for (let i = 1; i < px.length; i++) {
+      const y0 = py[i - 1], y1 = py[i]
+      // Skip if segment doesn't cross this row
+      if ((y0 <= row && y1 <= row) || (y0 >= row && y1 >= row)) continue
+      if (y0 === y1) continue
+
+      const t = (row - y0) / (y1 - y0)
+      const cx = Math.round(px[i - 1] + t * (px[i] - px[i - 1]))
+      const slope = y1 - y0
+      chars.push({ x: cx, c: slope > 0 ? "╱" : "╲" })
+    }
+
+    // Render the row: sort chars by x and fill gaps with spaces
+    chars.sort((a, b) => a.x - b.x)
+    let prevX = 0
+    for (const { x, c } of chars) {
+      while (prevX < x) { line += " "; prevX++ }
+      line += c
+      prevX = x + 1
     }
 
     lines.push(line)
@@ -1144,18 +1167,19 @@ function cmdTrend(flags: Map<string, string | boolean>) {
 
   // Bottom axis
   let axis = " ".repeat(9) + " └"
-  axis += "─".repeat(xStep * cols.length)
+  axis += "─".repeat(chartWidth)
   lines.push(axis)
 
   // X axis labels
   const labelStep = Math.max(1, Math.ceil(sorted.length / 6))
   let xLabels = " ".repeat(11)
-  for (let i = 0; i < cols.length; i++) {
-    if (i % labelStep === 0 || i === cols.length - 1) {
+  for (let i = 0; i < px.length; i++) {
+    if (i % labelStep === 0 || i === px.length - 1) {
       const d = new Date(sorted[i][0])
       const ds = `${d.getMonth() + 1}/${d.getDate()}`
+      const pos = px[i] + 0
+      while (xLabels.length - 11 < pos) xLabels += " "
       xLabels += ds
-      if (i < cols.length - 1) xLabels += " ".repeat(Math.max(1, xStep - ds.length + 1))
     }
   }
   lines.push(xLabels)
