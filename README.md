@@ -152,7 +152,75 @@ Breakdown options (`--by`):
 - `agent` - Group by agent (e.g., sisyphus, coder)
 - `provider` - Group by provider (e.g., anthropic, openai)
 - `daily` - Show day-by-day breakdown
+- `session` - Group by session ID
 - `all` - Show all breakdowns
+
+### Trend Chart
+
+Visualize your daily token usage and cost over time:
+
+```bash
+# 30-day cost trend (default)
+opencode-tokens trend
+
+# 7-day token count trend
+opencode-tokens trend --days 7 --metric tokens
+
+# Compact chart
+opencode-tokens trend --width 40
+```
+
+Options:
+- `--days N` — Number of days to chart (default 30)
+- `--metric` — `cost` (default), `tokens`, or `messages`
+- `--width W` — Chart width in characters (default 60)
+
+### Data Export
+
+Export your token usage data for analysis:
+
+```bash
+# Export all data as CSV
+opencode-tokens export
+
+# Export this month as JSON
+opencode-tokens export --format json --period month
+
+# Export to file
+opencode-tokens export --format csv --output usage.csv
+```
+
+Options:
+- `--format` — `csv` (default) or `json`
+- `--period` — `today`, `week`, `month`, `all` (default)
+- `--output FILE` — Write to file instead of stdout
+
+### Config Management
+
+Manage budget and toast settings directly from the CLI:
+
+```bash
+# Show current config
+opencode-tokens config
+
+# Set daily budget to $10
+opencode-tokens config set budget.daily 10
+
+# Disable toast notifications
+opencode-tokens config set toast.enabled false
+
+# Check a value
+opencode-tokens config get budget.warnAt
+
+# Reset to default
+opencode-tokens config unset budget.daily
+```
+
+Settable keys:
+- `budget.daily`, `budget.weekly`, `budget.monthly`, `budget.warnAt`
+- `toast.enabled`, `toast.duration`, `toast.showOnIdle`
+
+Config changes are automatically backed up to `token-tracker.json.bak`.
 
 ### Pricing & Config Commands
 

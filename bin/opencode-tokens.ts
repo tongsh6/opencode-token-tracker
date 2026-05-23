@@ -2,7 +2,7 @@
 
 import type { ModelPricing, TrackerConfig } from "../lib/shared.js"
 import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "../lib/shared.js"
-import { readFileSync, existsSync, writeFileSync, copyFileSync, openSync, readSync, closeSync, statSync } from "fs"
+import { readFileSync, existsSync, writeFileSync, copyFileSync, mkdirSync, openSync, readSync, closeSync, statSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
 
@@ -802,6 +802,10 @@ function loadOrInitConfig(): Record<string, unknown> {
 }
 
 function saveConfig(raw: Record<string, unknown>): void {
+  const dir = join(homedir(), ".config", "opencode")
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
   if (existsSync(CONFIG_FILE)) {
     copyFileSync(CONFIG_FILE, CONFIG_FILE + ".bak")
   }
