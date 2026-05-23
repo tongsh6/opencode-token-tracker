@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import type { ModelPricing, TrackerConfig } from "../lib/shared.js"
-import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "../lib/shared.js"
-import { readFileSync, existsSync, writeFileSync, copyFileSync, mkdirSync, openSync, readSync, closeSync, statSync } from "fs"
-import { join } from "path"
-import { homedir } from "os"
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import type { TrackerConfig } from "../lib/shared.js"
+import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfMonth, getStartOfWeek, validateConfig } from "../lib/shared.js"
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
@@ -46,16 +46,16 @@ interface Stats {
 // ============================================================================
 
 function padRight(str: string, len: number): string {
-  return str.length >= len ? str : str + " ".repeat(len - str.length)
+  return str.length >= len ? str : `${str}${" ".repeat(len - str.length)}`
 }
 
 function padLeft(str: string, len: number): string {
-  return str.length >= len ? str : " ".repeat(len - str.length) + str
+  return str.length >= len ? str : `${" ".repeat(len - str.length)}${str}`
 }
 
 function truncateSessionId(sessionId?: string): string {
   if (!sessionId) return "unknown"
-  return sessionId.length > 16 ? sessionId.slice(0, 14) + "…" : sessionId
+  return sessionId.length > 16 ? `${sessionId.slice(0, 14)}…` : sessionId
 }
 
 // ============================================================================
@@ -121,10 +121,6 @@ function parseArgs(args: string[]): ParsedArgs {
 function flagValue(flags: Map<string, string | boolean>, name: string): string | undefined {
   const v = flags.get(name)
   return typeof v === "string" ? v : undefined
-}
-
-function flagBool(flags: Map<string, string | boolean>, name: string): boolean {
-  return flags.has(name)
 }
 
 // ============================================================================
@@ -246,10 +242,11 @@ function groupBy<K extends string>(entries: TokenEntry[], keyFn: (e: TokenEntry)
   const groups = new Map<K, Stats>()
   for (const e of entries) {
     const key = keyFn(e)
-    if (!groups.has(key)) {
-      groups.set(key, createEmptyStats())
+    let stats = groups.get(key)
+    if (!stats) {
+      stats = createEmptyStats()
+      groups.set(key, stats)
     }
-    const stats = groups.get(key)!
     stats.input += e.input ?? 0
     stats.output += e.output ?? 0
     stats.reasoning += e.reasoning ?? 0
@@ -373,7 +370,6 @@ function cmdStats(period: string, breakdown?: string) {
       since = getStartOfMonth(now)
       title = "This Month's Usage"
       break
-    case "all":
     default:
       since = undefined
       title = "All-Time Usage"
@@ -442,9 +438,9 @@ function cmdPricing() {
     for (const model of models) {
       const p = BUILTIN_PRICING[model]
       if (!p) continue
-      const overridden = config.models?.[model] ? " *" : ""
+      const overridden = config.models[model] ? " *" : ""
       console.log(
-        `  ${padRight(model + overridden, modelWidth)}  ${padLeft("$" + p.input.toString(), priceWidth)}  ${padLeft("$" + p.output.toString(), priceWidth)}  ${padLeft(p.cacheRead ? "$" + p.cacheRead.toString() : "-", priceWidth)}  ${padLeft(p.cacheWrite ? "$" + p.cacheWrite.toString() : "-", priceWidth)}`
+        `  ${padRight(`${model}${overridden}`, modelWidth)}  ${padLeft(`$${p.input.toString()}`, priceWidth)}  ${padLeft(`$${p.output.toString()}`, priceWidth)}  ${padLeft(p.cacheRead ? `$${p.cacheRead.toString()}` : "-", priceWidth)}  ${padLeft(p.cacheWrite ? `$${p.cacheWrite.toString()}` : "-", priceWidth)}`
       )
     }
     console.log()
@@ -452,8 +448,8 @@ function cmdPricing() {
   
   console.log(`  Default (unknown models)`)
   console.log(`  ${"-".repeat(modelWidth + priceWidth * 4 + 12)}`)
-  const def = BUILTIN_PRICING["_default"]
-  console.log(`  ${padRight("_default", modelWidth)}  ${padLeft("$" + def.input.toString(), priceWidth)}  ${padLeft("$" + def.output.toString(), priceWidth)}  ${padLeft("-", priceWidth)}  ${padLeft("-", priceWidth)}`)
+  const def = BUILTIN_PRICING._default
+  console.log(`  ${padRight("_default", modelWidth)}  ${padLeft(`$${def.input.toString()}`, priceWidth)}  ${padLeft(`$${def.output.toString()}`, priceWidth)}  ${padLeft("-", priceWidth)}  ${padLeft("-", priceWidth)}`)
   console.log()
   
   if (Object.keys(config.models || {}).length > 0) {
@@ -477,10 +473,11 @@ function cmdModels() {
     const provider = e.provider ?? "unknown"
     const key = `${model}|${provider}`
     
-    if (!modelProviders.has(key)) {
-      modelProviders.set(key, { provider, count: 0, lastUsed: 0 })
+    let info = modelProviders.get(key)
+    if (!info) {
+      info = { provider, count: 0, lastUsed: 0 }
+      modelProviders.set(key, info)
     }
-    const info = modelProviders.get(key)!
     info.count++
     info.lastUsed = Math.max(info.lastUsed, e._ts)
   }
@@ -583,13 +580,13 @@ function cmdConfig(positional: string[]) {
     for (const provider of providers) {
       // Common free providers
       if (provider.includes("copilot") || provider.includes("cursor") || provider.includes("free")) {
-        exampleConfig.providers![provider] = { input: 0, output: 0 }
+        exampleConfig.providers[provider] = { input: 0, output: 0 }
       }
     }
     
     // Add unknown models
     for (const model of unknownModels) {
-      exampleConfig.models![model] = { input: 1, output: 4 }
+      exampleConfig.models[model] = { input: 1, output: 4 }
     }
     
     // Print explanation first
@@ -681,7 +678,7 @@ function cmdConfig(positional: string[]) {
       if (value < 0) { console.log(`\n  Value must be >= 0\n`); return }
       if (spec.max !== undefined && value > spec.max) { console.log(`\n  Value must be <= ${spec.max}\n`); return }
     }
-    applyConfigSet(key, value, config)
+    applyConfigSet(key, value)
     console.log(`\n  Set ${key} = ${JSON.stringify(value)}\n`)
     return
   }
@@ -691,7 +688,7 @@ function cmdConfig(positional: string[]) {
     if (!key) { console.log("\n  Usage: opencode-tokens config unset <key>\n"); return }
     const spec = SETTABLE_KEYS[key]
     if (!spec) { console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`); return }
-    applyConfigUnset(key, config)
+    applyConfigUnset(key)
     console.log(`\n  Unset ${key} (reverted to default)\n`)
     return
   }
@@ -714,7 +711,7 @@ function cmdConfig(positional: string[]) {
   if (existsSync(CONFIG_FILE)) {
     console.log(`  Contents:`)
     console.log(`  ${"-".repeat(60)}`)
-    console.log(JSON.stringify(config, null, 2).split("\n").map(l => "  " + l).join("\n"))
+    console.log(JSON.stringify(config, null, 2).split("\n").map(l => `  ${l}`).join("\n"))
     console.log()
   }
 
@@ -768,7 +765,7 @@ function resolveConfigKey(config: TrackerConfig, key: string): unknown {
   return obj[spec.path[spec.path.length - 1]] ?? spec.default
 }
 
-function applyConfigSet(key: string, value: unknown, config: TrackerConfig): void {
+function applyConfigSet(key: string, value: unknown): void {
   const spec = SETTABLE_KEYS[key]
   const fullConfig = loadOrInitConfig()
   let obj: Record<string, unknown> = fullConfig as unknown as Record<string, unknown>
@@ -780,7 +777,7 @@ function applyConfigSet(key: string, value: unknown, config: TrackerConfig): voi
   saveConfig(fullConfig)
 }
 
-function applyConfigUnset(key: string, config: TrackerConfig): void {
+function applyConfigUnset(key: string): void {
   const spec = SETTABLE_KEYS[key]
   const fullConfig = loadOrInitConfig()
   let obj: Record<string, unknown> = fullConfig as unknown as Record<string, unknown>
@@ -807,9 +804,9 @@ function saveConfig(raw: Record<string, unknown>): void {
     mkdirSync(dir, { recursive: true })
   }
   if (existsSync(CONFIG_FILE)) {
-    copyFileSync(CONFIG_FILE, CONFIG_FILE + ".bak")
+    copyFileSync(CONFIG_FILE, `${CONFIG_FILE}.bak`)
   }
-  writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + "\n")
+  writeFileSync(CONFIG_FILE, `${JSON.stringify(raw, null, 2)}\n`)
 }
 
 // ============================================================================
@@ -857,7 +854,7 @@ function cmdExport(flags: Map<string, string | boolean>) {
       e.cacheWrite ?? 0,
       e.cost ?? 0,
     ].map(csvEscape).join(","))
-    output = [headers.join(","), ...rows].join("\n") + "\n"
+    output = `${[headers.join(","), ...rows].join("\n")}\n`
   }
 
   if (outputFile) {
@@ -1042,6 +1039,97 @@ function cmdHelp() {
 // Trend
 // ============================================================================
 
+interface TrendPoint {
+  cost: number
+  tokens: number
+  messages: number
+}
+
+interface ChartPoint {
+  x: number
+  y: number
+}
+
+function getTrendValue(point: TrendPoint, metric: string): number {
+  return metric === "tokens" ? point.tokens : metric === "messages" ? point.messages : point.cost
+}
+
+function formatTrendValue(value: number, metric: string): string {
+  return metric === "tokens" ? formatTokens(value) : metric === "messages" ? String(Math.round(value)) : formatCost(value)
+}
+
+function metricLabel(metric: string): string {
+  return metric === "tokens" ? "Token Trend" : metric === "messages" ? "Message Trend" : "Cost Trend"
+}
+
+function createTrendRows(height: number, width: number, gridRows: Set<number>): string[][] {
+  const rows: string[][] = []
+  for (let row = 0; row < height; row++) {
+    const grid = gridRows.has(row)
+    rows.push(Array.from({ length: width }, (_, x) => grid && x % 2 === 0 ? "·" : " "))
+  }
+  return rows
+}
+
+function drawTrendSegment(rows: string[][], from: ChartPoint, to: ChartPoint): void {
+  const startX = Math.min(from.x, to.x)
+  const endX = Math.max(from.x, to.x)
+  const slope = to.y - from.y
+
+  for (let x = startX; x <= endX; x++) {
+    const t = x === from.x ? 0 : (x - from.x) / (to.x - from.x)
+    const y = Math.round(from.y + slope * t)
+    const char = slope > 0 ? "╱" : slope < 0 ? "╲" : "─"
+    rows[y][x] = char
+  }
+}
+
+function drawTrendArea(rows: string[][], points: ChartPoint[]): void {
+  for (let i = 1; i < points.length; i++) {
+    const from = points[i - 1]
+    const to = points[i]
+    const startX = Math.min(from.x, to.x)
+    const endX = Math.max(from.x, to.x)
+
+    for (let x = startX; x <= endX; x++) {
+      const t = x === from.x ? 0 : (x - from.x) / (to.x - from.x)
+      const y = Math.round(from.y + (to.y - from.y) * t)
+      for (let fillY = 0; fillY < y; fillY++) {
+        if (rows[fillY][x] === " " || rows[fillY][x] === "·") {
+          rows[fillY][x] = "░"
+        }
+      }
+    }
+  }
+}
+
+function drawTrendPoints(rows: string[][], points: ChartPoint[]): void {
+  for (const point of points) {
+    rows[point.y][point.x] = "●"
+  }
+}
+
+function buildTrendXAxis(points: Array<[number, TrendPoint]>, chartPoints: ChartPoint[], chartWidth: number): string {
+  const labelChars = Array.from({ length: chartWidth }, () => " ")
+  const labelStep = Math.max(1, Math.ceil(points.length / 6))
+
+  for (let i = 0; i < chartPoints.length; i++) {
+    if (i % labelStep !== 0 && i !== chartPoints.length - 1) continue
+
+    const date = new Date(points[i][0])
+    const label = `${date.getMonth() + 1}/${date.getDate()}`
+    const start = Math.min(Math.max(0, chartPoints[i].x - Math.floor(label.length / 2)), Math.max(0, chartWidth - label.length))
+    const hasSpace = labelChars.slice(Math.max(0, start - 1), Math.min(chartWidth, start + label.length + 1)).every((c) => c === " ")
+
+    if (!hasSpace) continue
+    for (let j = 0; j < label.length; j++) {
+      labelChars[start + j] = label[j]
+    }
+  }
+
+  return labelChars.join("")
+}
+
 function cmdTrend(flags: Map<string, string | boolean>) {
   const days = parseInt(String(flagValue(flags, "days") ?? "30"), 10)
   const metric = flagValue(flags, "metric") ?? "cost"
@@ -1055,14 +1143,14 @@ function cmdTrend(flags: Map<string, string | boolean>) {
     return
   }
 
-  // Aggregate by day
-  const dayMap = new Map<number, { cost: number; tokens: number; messages: number }>()
+  const dayMap = new Map<number, TrendPoint>()
   for (const e of entries) {
     const dayStart = getStartOfDay(new Date(e._ts))
-    if (!dayMap.has(dayStart)) {
-      dayMap.set(dayStart, { cost: 0, tokens: 0, messages: 0 })
+    let d = dayMap.get(dayStart)
+    if (!d) {
+      d = { cost: 0, tokens: 0, messages: 0 }
+      dayMap.set(dayStart, d)
     }
-    const d = dayMap.get(dayStart)!
     d.cost += e.cost ?? 0
     d.tokens += (e.input ?? 0) + (e.output ?? 0) + (e.reasoning ?? 0)
     d.messages += 1
@@ -1073,119 +1161,70 @@ function cmdTrend(flags: Map<string, string | boolean>) {
   if (sorted.length < 2) {
     const only = sorted[0]
     if (only) {
-      const v = metric === "tokens" ? formatTokens(only[1].tokens) : metric === "messages" ? String(only[1].messages) : formatCost(only[1].cost)
+      const v = formatTrendValue(getTrendValue(only[1], metric), metric)
       console.log(`\n  ${new Date(only[0]).toISOString().slice(0, 10)}: ${v}\n`)
     }
     return
   }
 
-  const values = sorted.map(([, d]) =>
-    metric === "tokens" ? d.tokens : metric === "messages" ? d.messages : d.cost
-  )
+  const values = sorted.map(([, d]) => getTrendValue(d, metric))
   const maxVal = Math.max(...values, 1)
+  const minVal = Math.min(...values)
+  const totalVal = values.reduce((sum, value) => sum + value, 0)
+  const avgVal = totalVal / values.length
+  const deltaVal = values[values.length - 1] - values[0]
   const H = Math.max(5, Math.min(Math.floor(width / 3), 20))
 
   if (width < 35) {
     // Fallback: simple sparkline
     const chars = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
     const spark = values.map(v => chars[Math.min(Math.floor((v / maxVal) * 7), 7)]).join("")
-    console.log(`\n  ${spark}\n`)
+    console.log(`\n  ${metricLabel(metric)}  ${spark}\n`)
     return
   }
 
-  // Build chart — pixel-based rendering
-  const cols = values.map((v) => ({ value: v, y: Math.round((v / maxVal) * (H - 1)) }))
   const chartWidth = Math.max(width - 12, 20)
-
-  // Map data points to pixel x-positions (evenly spaced across chartWidth)
-  const px: number[] = []
-  const py: number[] = []
-  for (let i = 0; i < cols.length; i++) {
-    px.push(cols.length === 1 ? Math.floor(chartWidth / 2) : Math.round((i / (cols.length - 1)) * (chartWidth - 1)))
-    py.push(cols[i].y)
+  const yLabelStep = Math.max(1, Math.floor(H / 5))
+  const gridRows = new Set<number>()
+  for (let row = 0; row < H; row++) {
+    if (row === 0 || row === H - 1 || (H - 1 - row) % yLabelStep === 0) {
+      gridRows.add(row)
+    }
   }
 
-  const yLabelStep = Math.max(1, Math.floor(H / 5))
+  const chartPoints = values.map((value, i) => ({
+    x: values.length === 1 ? Math.floor(chartWidth / 2) : Math.round((i / (values.length - 1)) * (chartWidth - 1)),
+    y: Math.round((value / maxVal) * (H - 1)),
+  }))
+
+  const rows = createTrendRows(H, chartWidth, gridRows)
+  drawTrendArea(rows, chartPoints)
+  for (let i = 1; i < chartPoints.length; i++) {
+    drawTrendSegment(rows, chartPoints[i - 1], chartPoints[i])
+  }
+  drawTrendPoints(rows, chartPoints)
+
   const lines: string[] = []
 
+  lines.push(`${metricLabel(metric)} · ${sorted.length} days · peak ${formatTrendValue(maxVal, metric)} · avg ${formatTrendValue(avgVal, metric)} · Δ ${deltaVal >= 0 ? "+" : ""}${formatTrendValue(deltaVal, metric)}`)
+  lines.push(`range ${formatTrendValue(minVal, metric)} → ${formatTrendValue(maxVal, metric)}`)
+
   for (let row = H - 1; row >= 0; row--) {
-    let line = ""
     const valAtRow = (row / (H - 1)) * maxVal
-    const label = row === H - 1 || row === 0 || (H - 1 - row) % yLabelStep === 0
-      ? metric === "tokens" ? formatTokens(valAtRow) : metric === "messages" ? String(Math.round(valAtRow)) : formatCost(valAtRow)
+    const label = gridRows.has(row)
+      ? formatTrendValue(valAtRow, metric)
       : ""
-    line += padLeft(label, 9)
-    line += row === 0 ? " ┼" : " ┤"
-
-    // Build a sparse array of characters at specific x-positions for this row
-    const chars: { x: number; c: string }[] = []
-
-    // Data points that land on this row
-    for (let i = 0; i < px.length; i++) {
-      if (py[i] === row) {
-        if (cols.length === 1) {
-          chars.push({ x: px[i], c: "─" })
-        } else {
-          const prevSlope = i > 0 ? py[i] - py[i - 1] : 0
-          const nextSlope = i < px.length - 1 ? py[i + 1] - py[i] : 0
-          let c = "─"
-          if (i === 0) c = nextSlope > 0 ? "╭" : nextSlope < 0 ? "╰" : "─"
-          else if (i === px.length - 1) c = prevSlope > 0 ? "╮" : prevSlope < 0 ? "╯" : "─"
-          else if (prevSlope > 0 && nextSlope > 0) c = "╭"
-          else if (prevSlope < 0 && nextSlope < 0) c = "╰"
-          else if (prevSlope > 0 && nextSlope < 0) c = "╮"
-          else if (prevSlope < 0 && nextSlope > 0) c = "╯"
-          chars.push({ x: px[i], c })
-        }
-      }
-    }
-
-    // Line segments crossing this row (exact x of intersection)
-    for (let i = 1; i < px.length; i++) {
-      const y0 = py[i - 1], y1 = py[i]
-      // Skip if segment doesn't cross this row
-      if ((y0 <= row && y1 <= row) || (y0 >= row && y1 >= row)) continue
-      if (y0 === y1) continue
-
-      const t = (row - y0) / (y1 - y0)
-      const cx = Math.round(px[i - 1] + t * (px[i] - px[i - 1]))
-      const slope = y1 - y0
-      chars.push({ x: cx, c: slope > 0 ? "╱" : "╲" })
-    }
-
-    // Render the row: sort chars by x and fill gaps with spaces
-    chars.sort((a, b) => a.x - b.x)
-    let prevX = 0
-    for (const { x, c } of chars) {
-      while (prevX < x) { line += " "; prevX++ }
-      line += c
-      prevX = x + 1
-    }
-
+    const line = `${padLeft(label, 9)}${row === 0 ? " ┼" : " ┤"}${rows[row].join("")}`
     lines.push(line)
   }
 
-  // Bottom axis
-  let axis = " ".repeat(9) + " └"
-  axis += "─".repeat(chartWidth)
+  const axis = `${" ".repeat(9)} └${"─".repeat(chartWidth)}`
   lines.push(axis)
 
-  // X axis labels
-  const labelStep = Math.max(1, Math.ceil(sorted.length / 6))
-  let xLabels = " ".repeat(11)
-  for (let i = 0; i < px.length; i++) {
-    if (i % labelStep === 0 || i === px.length - 1) {
-      const d = new Date(sorted[i][0])
-      const ds = `${d.getMonth() + 1}/${d.getDate()}`
-      const pos = px[i] + 0
-      while (xLabels.length - 11 < pos) xLabels += " "
-      xLabels += ds
-    }
-  }
-  lines.push(xLabels)
+  lines.push(`${" ".repeat(11)}${buildTrendXAxis(sorted, chartPoints, chartWidth)}`)
 
   console.log()
-  for (const l of lines) console.log("  " + l)
+  for (const l of lines) console.log(`  ${l}`)
   console.log()
 }
 
@@ -1227,9 +1266,7 @@ function main() {
 
   // Default: stats
   let period = "all"
-  let breakdown: string | undefined
-
-  breakdown = flagValue(parsed.flags, "by") || (parsed.flags.has("b") ? String(parsed.flags.get("b")) : undefined)
+  const breakdown = flagValue(parsed.flags, "by") || (parsed.flags.has("b") ? String(parsed.flags.get("b")) : undefined)
   for (const p of ["today", "week", "month", "all"]) {
     if (parsed.positional.includes(p)) {
       period = p
