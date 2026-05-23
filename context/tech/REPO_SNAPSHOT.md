@@ -66,7 +66,7 @@ context/
 - 提交规范：Conventional Commits
 - CI：GitHub Actions（Node 18 + 22 矩阵，push/PR 到 main/dev 触发）
 - 发布：合并到 `main` 后按版本打 tag，执行 `npm publish`
-- 当前版本：`1.5.1`（2026-05-23 发布）
+- 当前版本：`1.5.2`（2026-05-23 发布）
 
 ## 常用命令
 
