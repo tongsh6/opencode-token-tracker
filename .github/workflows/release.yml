@@ -56,17 +56,13 @@ jobs:
 
       - name: Publish to npm
         run: |
-          echo "=== npm whoami ==="
-          npm whoami || true
-          echo "=== npm config list ==="
-          npm config list || true
           # Versions like 1.6.0-rc.0 are published under the "next" dist-tag
           # so that `npm install opencode-token-tracker` (which uses "latest")
           # never picks up a prerelease.
           if [[ "${GITHUB_REF_NAME#v}" == *-* ]]; then
-            npm publish --access public --tag next
+            npm publish --access public --provenance --tag next
           else
-            npm publish --access public
+            npm publish --access public --provenance
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
