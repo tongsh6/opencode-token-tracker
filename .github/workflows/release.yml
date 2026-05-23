@@ -56,6 +56,10 @@ jobs:
 
       - name: Publish to npm
         run: |
+          echo "=== npm whoami ==="
+          npm whoami || true
+          echo "=== npm config list ==="
+          npm config list || true
           # Versions like 1.6.0-rc.0 are published under the "next" dist-tag
           # so that `npm install opencode-token-tracker` (which uses "latest")
           # never picks up a prerelease.
