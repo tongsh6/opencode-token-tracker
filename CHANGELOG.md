@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.3] - 2026-05-23
+
+### Added
+
+- Implement high-performance O(1) **Reverse Chunk-based Parser (Tail-reading)** for loading token log entries in CLI (`opencode-tokens`). The tool now reads log buffers backward from the end and terminates instantly once earlier timestamps are hit, boosting CLI query performance by up to 190x on large logs.
+
 ## [1.5.2] - 2026-05-23
 
 ### Fixed
@@ -82,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Corrected bin path format in package.json
 
+[1.5.3]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.4.0...v1.5.0
