@@ -429,15 +429,27 @@ function cmdModels() {
   console.log(`  ${"-".repeat(modelWidth)}  ${"-".repeat(providerWidth)}  ${"-".repeat(countWidth)}  ${"-".repeat(statusWidth)}`)
   
   for (const { model, provider, count } of sorted) {
-    let status = "built-in"
+    let status: string
+
+    // Mirror the runtime pricing resolution order (getModelPricing in index.ts)
     if (config.providers?.[provider]) {
       status = "provider cfg"
-    } else if (findModelConfigPricing(config.models, model, provider)) {
+    } else if (findModelConfigPricing(config.models, model, provider, false)) {
       status = "model cfg"
-    } else if (!BUILTIN_PRICING[model]) {
-      // Check partial match
-      const hasMatch = Object.keys(BUILTIN_PRICING).some(k => k !== "_default" && model.toLowerCase().includes(k.toLowerCase()))
-      status = hasMatch ? "built-in" : "default"
+    } else if (BUILTIN_PRICING[model]) {
+      status = "built-in"
+    } else {
+      const modelLower = model.toLowerCase()
+      const hasBuiltinPartial = Object.keys(BUILTIN_PRICING).some(
+        k => k !== "_default" && modelLower.includes(k.toLowerCase())
+      )
+      if (hasBuiltinPartial) {
+        status = "built-in"
+      } else if (findModelConfigPricing(config.models, model, provider, true)) {
+        status = "model cfg"
+      } else {
+        status = "default"
+      }
     }
     
     console.log(`  ${padRight(model, modelWidth)}  ${padRight(provider, providerWidth)}  ${padLeft(count.toString(), countWidth)}  ${padRight(status, statusWidth)}`)
