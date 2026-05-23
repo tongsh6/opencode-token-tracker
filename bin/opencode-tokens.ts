@@ -1128,7 +1128,7 @@ function buildLineRows(points: ChartPoint[], width: number, height: number): str
 
   // Overwrite the actual data points with a beautiful dot
   for (const p of points) {
-    grid[p.y][p.x] = "●"
+    grid[p.y][p.x] = "·"
   }
 
   return grid
