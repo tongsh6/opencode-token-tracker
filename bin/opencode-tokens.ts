@@ -1125,7 +1125,7 @@ function buildLineRows(points: ChartPoint[], width: number, height: number): str
         }
       } else {
         if (grid[rCurr][x] === " ") {
-          grid[rCurr][x] = "╮"
+          grid[rCurr][x] = "┐"
         }
         for (let y = rCurr + 1; y < rNext; y++) {
           if (grid[y][x] === " ") {
@@ -1133,7 +1133,7 @@ function buildLineRows(points: ChartPoint[], width: number, height: number): str
           }
         }
         if (grid[rNext][x] === " ") {
-          grid[rNext][x] = "╰"
+          grid[rNext][x] = "└"
         }
       }
     } else {
@@ -1145,7 +1145,7 @@ function buildLineRows(points: ChartPoint[], width: number, height: number): str
         }
       } else {
         if (grid[rCurr][x] === " ") {
-          grid[rCurr][x] = "╯"
+          grid[rCurr][x] = "┘"
         }
         for (let y = rNext + 1; y < rCurr; y++) {
           if (grid[y][x] === " ") {
@@ -1153,7 +1153,7 @@ function buildLineRows(points: ChartPoint[], width: number, height: number): str
           }
         }
         if (grid[rNext][x] === " ") {
-          grid[rNext][x] = "╭"
+          grid[rNext][x] = "┌"
         }
       }
     }
