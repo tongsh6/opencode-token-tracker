@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-05-24
+
+### Added
+
+- `opencode-tokens trend` — ASCII line chart of daily cost/tokens/messages over time with box-drawing characters (#57)
+- `opencode-tokens --by session` — group statistics by session ID (#57)
+- `opencode-tokens export --format csv|json` — export token entries to CSV or JSON with optional file output (#57)
+- `opencode-tokens config set/get/unset <key> [value]` — manage budget and toast settings directly from CLI, with type validation and automatic backup (#57)
+- Internal CLI argparse helper for consistent `--flag value` / `--flag=value` / `-f value` parsing across all subcommands
+
 ## [1.5.7] - 2026-05-24
 
 ### Fixed
@@ -132,6 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Corrected bin path format in package.json
 
+[1.5.7]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.6...v1.5.7
 [1.5.6]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.5...v1.5.6
 [1.5.5]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.3...v1.5.4

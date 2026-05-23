@@ -2,7 +2,7 @@
 
 import type { ModelPricing, TrackerConfig } from "../lib/shared.js"
 import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "../lib/shared.js"
-import { readFileSync, existsSync, writeFileSync, openSync, readSync, closeSync, statSync } from "fs"
+import { readFileSync, existsSync, writeFileSync, copyFileSync, openSync, readSync, closeSync, statSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
 
@@ -51,6 +51,80 @@ function padRight(str: string, len: number): string {
 
 function padLeft(str: string, len: number): string {
   return str.length >= len ? str : " ".repeat(len - str.length) + str
+}
+
+function truncateSessionId(sessionId?: string): string {
+  if (!sessionId) return "unknown"
+  return sessionId.length > 16 ? sessionId.slice(0, 14) + "…" : sessionId
+}
+
+// ============================================================================
+// Argument Parser
+// ============================================================================
+
+interface ParsedArgs {
+  command: string
+  flags: Map<string, string | boolean>
+  positional: string[]
+}
+
+function parseArgs(args: string[]): ParsedArgs {
+  const positional: string[] = []
+  const flags = new Map<string, string | boolean>()
+  let i = 0
+
+  while (i < args.length) {
+    const arg = args[i]
+
+    if (arg === "--help" || arg === "-h") {
+      flags.set("help", true)
+      i++
+      continue
+    }
+
+    if (arg.startsWith("--")) {
+      const eqIndex = arg.indexOf("=")
+      if (eqIndex !== -1) {
+        flags.set(arg.slice(2, eqIndex), arg.slice(eqIndex + 1))
+      } else {
+        const next = args[i + 1]
+        if (next && !next.startsWith("-")) {
+          flags.set(arg.slice(2), next)
+          i++
+        } else {
+          flags.set(arg.slice(2), true)
+        }
+      }
+      i++
+      continue
+    }
+
+    if (arg.startsWith("-") && arg.length === 2 && arg !== "--") {
+      const next = args[i + 1]
+      if (next && !next.startsWith("-")) {
+        flags.set(arg.slice(1), next)
+        i++
+      } else {
+        flags.set(arg.slice(1), true)
+      }
+      i++
+      continue
+    }
+
+    positional.push(arg)
+    i++
+  }
+
+  return { command: positional[0] || "", flags, positional }
+}
+
+function flagValue(flags: Map<string, string | boolean>, name: string): string | undefined {
+  const v = flags.get(name)
+  return typeof v === "string" ? v : undefined
+}
+
+function flagBool(flags: Map<string, string | boolean>, name: string): boolean {
+  return flags.has(name)
 }
 
 // ============================================================================
@@ -330,6 +404,9 @@ function cmdStats(period: string, breakdown?: string) {
     case "daily":
       printDailyBreakdown(entries)
       break
+    case "session":
+      printTable("By Session", groupBy(entries, (e) => truncateSessionId(e.sessionId)), "Session")
+      break
     case "all":
       printTable("By Model", groupBy(entries, (e) => e.model ?? "unknown"), "Model")
       printTable("By Agent", groupBy(entries, (e) => e.agent ?? "unknown"), "Agent")
@@ -464,7 +541,8 @@ function cmdModels() {
   console.log()
 }
 
-function cmdConfig(action?: string) {
+function cmdConfig(positional: string[]) {
+  const action = positional[1]
   const config = loadConfig()
   const entries = loadEntries()
   
@@ -575,7 +653,55 @@ function cmdConfig(action?: string) {
     }
     return
   }
-  
+
+  if (action === "get") {
+    const key = positional[2]
+    if (!key) { console.log("\n  Usage: opencode-tokens config get <key>\n"); return }
+    const value = resolveConfigKey(config, key)
+    if (value === undefined) {
+      console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`)
+    } else {
+      console.log(`\n  ${key} = ${JSON.stringify(value)}\n`)
+    }
+    return
+  }
+
+  if (action === "set") {
+    const key = positional[2]
+    const rawValue = positional[3]
+    if (!key || !rawValue) { console.log("\n  Usage: opencode-tokens config set <key> <value>\n"); return }
+    const spec = SETTABLE_KEYS[key]
+    if (!spec) { console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`); return }
+    const value = parseConfigValue(rawValue)
+    if (typeof value !== spec.type) {
+      console.log(`\n  Invalid type: expected ${spec.type}, got ${typeof value}\n`)
+      return
+    }
+    if (typeof value === "number") {
+      if (value < 0) { console.log(`\n  Value must be >= 0\n`); return }
+      if (spec.max !== undefined && value > spec.max) { console.log(`\n  Value must be <= ${spec.max}\n`); return }
+    }
+    applyConfigSet(key, value, config)
+    console.log(`\n  Set ${key} = ${JSON.stringify(value)}\n`)
+    return
+  }
+
+  if (action === "unset") {
+    const key = positional[2]
+    if (!key) { console.log("\n  Usage: opencode-tokens config unset <key>\n"); return }
+    const spec = SETTABLE_KEYS[key]
+    if (!spec) { console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`); return }
+    applyConfigUnset(key, config)
+    console.log(`\n  Unset ${key} (reverted to default)\n`)
+    return
+  }
+
+  if (action && action !== "show") {
+    console.log(`\n  Unknown config action: ${action}`)
+    console.log(`  Usage: opencode-tokens config [show|init|generate|get|set|unset]\n`)
+    return
+  }
+
   // Show current config
   console.log(`
   Current Configuration
@@ -584,18 +710,167 @@ function cmdConfig(action?: string) {
   Config file: ${CONFIG_FILE}
   Status: ${existsSync(CONFIG_FILE) ? "exists" : "not found (using defaults)"}
 `)
-  
+
   if (existsSync(CONFIG_FILE)) {
     console.log(`  Contents:`)
     console.log(`  ${"-".repeat(60)}`)
     console.log(JSON.stringify(config, null, 2).split("\n").map(l => "  " + l).join("\n"))
     console.log()
   }
-  
+
   console.log(`  Commands:`)
-  console.log(`    opencode-tokens config init      Show example config with explanation`)
-  console.log(`    opencode-tokens config generate  Create config file`)
+  console.log(`    opencode-tokens config show              Show current config`)
+  console.log(`    opencode-tokens config init              Show example config with explanation`)
+  console.log(`    opencode-tokens config generate          Create config file`)
+  console.log(`    opencode-tokens config get <key>         Get a config value`)
+  console.log(`    opencode-tokens config set <key> <value> Set a config value`)
+  console.log(`    opencode-tokens config unset <key>       Reset a config value to default`)
   console.log()
+}
+
+// ============================================================================
+// Config Helpers
+// ============================================================================
+
+interface SettableKeySpec {
+  type: "number" | "boolean"
+  path: string[]
+  default: unknown
+  max?: number
+}
+
+const SETTABLE_KEYS: Record<string, SettableKeySpec> = {
+  "budget.daily":     { type: "number",  path: ["budget", "daily"],     default: undefined },
+  "budget.weekly":    { type: "number",  path: ["budget", "weekly"],    default: undefined },
+  "budget.monthly":   { type: "number",  path: ["budget", "monthly"],   default: undefined },
+  "budget.warnAt":    { type: "number",  path: ["budget", "warnAt"],    default: 0.8, max: 1 },
+  "toast.enabled":    { type: "boolean", path: ["toast", "enabled"],    default: true },
+  "toast.duration":   { type: "number",  path: ["toast", "duration"],   default: 3000 },
+  "toast.showOnIdle": { type: "boolean", path: ["toast", "showOnIdle"], default: true },
+}
+
+function parseConfigValue(s: string): unknown {
+  if (s === "true") return true
+  if (s === "false") return false
+  if (s === "null") return null
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s)
+  return s
+}
+
+function resolveConfigKey(config: TrackerConfig, key: string): unknown {
+  const spec = SETTABLE_KEYS[key]
+  if (!spec) return undefined
+  let obj: Record<string, unknown> = config as unknown as Record<string, unknown>
+  for (let i = 0; i < spec.path.length - 1; i++) {
+    obj = obj[spec.path[i]] as Record<string, unknown>
+    if (!obj) return spec.default
+  }
+  return obj[spec.path[spec.path.length - 1]] ?? spec.default
+}
+
+function applyConfigSet(key: string, value: unknown, config: TrackerConfig): void {
+  const spec = SETTABLE_KEYS[key]
+  const fullConfig = loadOrInitConfig()
+  let obj: Record<string, unknown> = fullConfig as unknown as Record<string, unknown>
+  for (let i = 0; i < spec.path.length - 1; i++) {
+    if (!obj[spec.path[i]]) obj[spec.path[i]] = {}
+    obj = obj[spec.path[i]] as Record<string, unknown>
+  }
+  obj[spec.path[spec.path.length - 1]] = value
+  saveConfig(fullConfig)
+}
+
+function applyConfigUnset(key: string, config: TrackerConfig): void {
+  const spec = SETTABLE_KEYS[key]
+  const fullConfig = loadOrInitConfig()
+  let obj: Record<string, unknown> = fullConfig as unknown as Record<string, unknown>
+  for (let i = 0; i < spec.path.length - 1; i++) {
+    if (!obj[spec.path[i]]) return
+    obj = obj[spec.path[i]] as Record<string, unknown>
+  }
+  delete obj[spec.path[spec.path.length - 1]]
+  saveConfig(fullConfig)
+}
+
+function loadOrInitConfig(): Record<string, unknown> {
+  if (existsSync(CONFIG_FILE)) {
+    try {
+      return JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+    } catch {}
+  }
+  return {}
+}
+
+function saveConfig(raw: Record<string, unknown>): void {
+  if (existsSync(CONFIG_FILE)) {
+    copyFileSync(CONFIG_FILE, CONFIG_FILE + ".bak")
+  }
+  writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + "\n")
+}
+
+// ============================================================================
+// Export
+// ============================================================================
+
+function cmdExport(flags: Map<string, string | boolean>) {
+  const format = flagValue(flags, "format") || "csv"
+  const period = flagValue(flags, "period") || "all"
+  const outputFile = flagValue(flags, "output")
+
+  const now = new Date()
+  let since: number | undefined
+  switch (period) {
+    case "today": since = getStartOfDay(now); break
+    case "week":  since = getStartOfWeek(now); break
+    case "month": since = getStartOfMonth(now); break
+  }
+
+  const entries = loadEntries(since)
+
+  if (entries.length === 0) {
+    console.log(`\n  No data to export for ${period}\n`)
+    return
+  }
+
+  let output: string
+  if (format === "json") {
+    output = JSON.stringify(entries, null, 2)
+  } else {
+    const headers = ["timestamp", "date", "session_id", "message_id", "role", "agent", "model", "provider", "input", "output", "reasoning", "cache_read", "cache_write", "cost"]
+    const rows = entries.map(e => [
+      e._ts,
+      new Date(e._ts).toISOString().slice(0, 10),
+      e.sessionId ?? "",
+      e.messageId ?? "",
+      e.role ?? "",
+      e.agent ?? "",
+      e.model ?? "",
+      e.provider ?? "",
+      e.input ?? 0,
+      e.output ?? 0,
+      e.reasoning ?? 0,
+      e.cacheRead ?? 0,
+      e.cacheWrite ?? 0,
+      e.cost ?? 0,
+    ].map(csvEscape).join(","))
+    output = [headers.join(","), ...rows].join("\n") + "\n"
+  }
+
+  if (outputFile) {
+    writeFileSync(outputFile, output)
+    console.log(`\n  Exported ${entries.length} entries to ${outputFile}\n`)
+  } else {
+    process.stdout.write(output)
+  }
+}
+
+function csvEscape(v: unknown): string {
+  if (v == null) return ""
+  const s = String(v)
+  if (/[",\n\r]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`
+  }
+  return s
 }
 
 function cmdBudget() {
@@ -713,26 +988,177 @@ function cmdHelp() {
     (default)     Show usage statistics
     budget        Show budget status (daily/weekly/monthly)
     pricing       Show built-in pricing table
-    models        Show your used models and their pricing status  
-    config        Show/generate configuration
+    models        Show your used models and their pricing status
+    config        Show/generate/modify configuration
+    export        Export token data to CSV/JSON
+    trend         Show daily cost/tokens trend chart
 
   Statistics Options:
     today         Show today's usage
-    week          Show this week's usage  
+    week          Show this week's usage
     month         Show this month's usage
     all           Show all-time usage (default)
-    
-    --by <type>   Group by: model, agent, provider, daily, all
+
+    --by <type>   Group by: model, agent, provider, session, daily, all
+
+  Export Options:
+    --format      csv (default) or json
+    --period      today, week, month, all (default)
+    --output      Write to file instead of stdout
+
+  Trend Options:
+    --days N      Number of days to chart (default 30)
+    --metric      cost (default), tokens, or messages
+    --width W     Chart width in characters (default 60)
+
+  Config Sub-commands:
+    config show                  Show current config
+    config init                  Show example config with explanation
+    config generate              Create config file
+    config get <key>             Get a config value
+    config set <key> <value>     Set a config value
+    config unset <key>           Reset a config value to default
+
+  Settable config keys:
+    budget.daily, budget.weekly, budget.monthly, budget.warnAt
+    toast.enabled, toast.duration, toast.showOnIdle
 
   Examples:
-    opencode-tokens                  # All-time summary
-    opencode-tokens budget           # Check budget status
-    opencode-tokens today            # Today's summary
-    opencode-tokens week --by model  # This week, by model
-    opencode-tokens pricing          # Show pricing table
-    opencode-tokens models           # Show your models
-    opencode-tokens config init      # Generate example config
+    opencode-tokens                       # All-time summary
+    opencode-tokens today --by model      # Today by model
+    opencode-tokens week --by session     # This week by session
+    opencode-tokens trend --days 7        # 7-day cost trend
+    opencode-tokens export --format csv   # Export all data as CSV
+    opencode-tokens config set budget.daily 10  # Set daily budget to $10
+    opencode-tokens config get toast.enabled   # Check if toast is enabled
 `)
+}
+
+// ============================================================================
+// Trend
+// ============================================================================
+
+function cmdTrend(flags: Map<string, string | boolean>) {
+  const days = parseInt(String(flagValue(flags, "days") ?? "30"), 10)
+  const metric = flagValue(flags, "metric") ?? "cost"
+  const width = parseInt(String(flagValue(flags, "width") ?? "60"), 10)
+
+  const since = getStartOfDay(new Date(Date.now() - days * 86400000))
+  const entries = loadEntries(since)
+
+  if (entries.length === 0) {
+    console.log(`\n  (no data in period)\n`)
+    return
+  }
+
+  // Aggregate by day
+  const dayMap = new Map<number, { cost: number; tokens: number; messages: number }>()
+  for (const e of entries) {
+    const dayStart = getStartOfDay(new Date(e._ts))
+    if (!dayMap.has(dayStart)) {
+      dayMap.set(dayStart, { cost: 0, tokens: 0, messages: 0 })
+    }
+    const d = dayMap.get(dayStart)!
+    d.cost += e.cost ?? 0
+    d.tokens += (e.input ?? 0) + (e.output ?? 0) + (e.reasoning ?? 0)
+    d.messages += 1
+  }
+
+  const sorted = Array.from(dayMap.entries()).sort(([a], [b]) => a - b)
+
+  if (sorted.length < 2) {
+    const only = sorted[0]
+    if (only) {
+      const v = metric === "tokens" ? formatTokens(only[1].tokens) : metric === "messages" ? String(only[1].messages) : formatCost(only[1].cost)
+      console.log(`\n  ${new Date(only[0]).toISOString().slice(0, 10)}: ${v}\n`)
+    }
+    return
+  }
+
+  const values = sorted.map(([, d]) =>
+    metric === "tokens" ? d.tokens : metric === "messages" ? d.messages : d.cost
+  )
+  const maxVal = Math.max(...values, 1)
+  const H = Math.max(5, Math.min(Math.floor(width / 3), 20))
+
+  if (width < 35) {
+    // Fallback: simple sparkline
+    const chars = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+    const spark = values.map(v => chars[Math.min(Math.floor((v / maxVal) * 7), 7)]).join("")
+    console.log(`\n  ${spark}\n`)
+    return
+  }
+
+  // Build chart
+  const cols = values.map((v) => ({ value: v, y: Math.round((v / maxVal) * (H - 1)) }))
+  const chartWidth = Math.max(width - 12, 20)
+  const xStep = Math.max(2, Math.floor(chartWidth / sorted.length))
+
+  const yLabelStep = Math.max(1, Math.floor(H / 5))
+  const lines: string[] = []
+
+  for (let row = H - 1; row >= 0; row--) {
+    let line = ""
+    const valAtRow = (row / (H - 1)) * maxVal
+    const label = row === H - 1 || row === 0 || (H - 1 - row) % yLabelStep === 0
+      ? metric === "tokens" ? formatTokens(valAtRow) : metric === "messages" ? String(Math.round(valAtRow)) : formatCost(valAtRow)
+      : ""
+    line += padLeft(label, 9)
+
+    line += row === 0 ? " ┼" : " ┤"
+
+    for (let ci = 0; ci < cols.length; ci++) {
+      const col = cols[ci]
+      const nextY = ci < cols.length - 1 ? cols[ci + 1].y : col.y
+
+      if (col.y === row) {
+        if (ci > 0) {
+          const prevY = cols[ci - 1].y
+          if (prevY < col.y && nextY <= col.y) line += "╭"
+          else if (prevY > col.y && nextY >= col.y) line += "╰"
+          else if (prevY < col.y || nextY < col.y) line += "╭"
+          else if (prevY > col.y || nextY > col.y) line += "╰"
+          else line += "─"
+        } else {
+          line += nextY > col.y ? "╭" : nextY < col.y ? "╰" : "─"
+        }
+        if (xStep > 1 && ci < cols.length - 1 && nextY === row) {
+          line += "─".repeat(xStep - 1)
+        }
+      } else if (ci > 0 && ci < cols.length) {
+        const prevY = cols[ci - 1].y
+        if ((prevY < row && col.y > row) || (prevY > row && col.y < row)) {
+          line += prevY < col.y ? "╱" : "╲"
+        } else {
+          line += " ".repeat(xStep > 1 && nextY !== row ? 1 : Math.min(xStep, 1))
+        }
+      }
+    }
+
+    lines.push(line)
+  }
+
+  // Bottom axis
+  let axis = " ".repeat(9) + " └"
+  axis += "─".repeat(xStep * cols.length)
+  lines.push(axis)
+
+  // X axis labels
+  const labelStep = Math.max(1, Math.ceil(sorted.length / 6))
+  let xLabels = " ".repeat(11)
+  for (let i = 0; i < cols.length; i++) {
+    if (i % labelStep === 0 || i === cols.length - 1) {
+      const d = new Date(sorted[i][0])
+      const ds = `${d.getMonth() + 1}/${d.getDate()}`
+      xLabels += ds
+      if (i < cols.length - 1) xLabels += " ".repeat(Math.max(1, xStep - ds.length + 1))
+    }
+  }
+  lines.push(xLabels)
+
+  console.log()
+  for (const l of lines) console.log("  " + l)
+  console.log()
 }
 
 // ============================================================================
@@ -741,44 +1167,45 @@ function cmdHelp() {
 
 function main() {
   const args = process.argv.slice(2)
-  const command = args[0]
+  const parsed = parseArgs(args)
 
-  if (args.includes("--help") || args.includes("-h")) {
+  if (parsed.flags.has("help")) {
     cmdHelp()
     return
   }
 
-  // Handle subcommands
-  if (command === "budget") {
-    cmdBudget()
-    return
-  }
-  
-  if (command === "pricing") {
-    cmdPricing()
-    return
-  }
-  
-  if (command === "models") {
-    cmdModels()
-    return
-  }
-  
-  if (command === "config") {
-    cmdConfig(args[1])
-    return
+  const { command } = parsed
+
+  switch (command) {
+    case "budget":
+      cmdBudget()
+      return
+    case "pricing":
+      cmdPricing()
+      return
+    case "models":
+      cmdModels()
+      return
+    case "config":
+      cmdConfig(parsed.positional)
+      return
+    case "export":
+      cmdExport(parsed.flags)
+      return
+    case "trend":
+      cmdTrend(parsed.flags)
+      return
   }
 
-  // Parse stats arguments
+  // Default: stats
   let period = "all"
   let breakdown: string | undefined
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === "--by" || arg === "-b") {
-      breakdown = args[++i]
-    } else if (["today", "week", "month", "all"].includes(arg)) {
-      period = arg
+  breakdown = flagValue(parsed.flags, "by") || (parsed.flags.has("b") ? String(parsed.flags.get("b")) : undefined)
+  for (const p of ["today", "week", "month", "all"]) {
+    if (parsed.positional.includes(p)) {
+      period = p
+      break
     }
   }
 
