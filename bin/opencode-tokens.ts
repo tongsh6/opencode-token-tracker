@@ -657,12 +657,12 @@ function cmdConfig(positional: string[]) {
   if (action === "get") {
     const key = positional[2]
     if (!key) { console.log("\n  Usage: opencode-tokens config get <key>\n"); return }
-    const value = resolveConfigKey(config, key)
-    if (value === undefined) {
+    if (!SETTABLE_KEYS[key]) {
       console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`)
-    } else {
-      console.log(`\n  ${key} = ${JSON.stringify(value)}\n`)
+      return
     }
+    const value = resolveConfigKey(config, key)
+    console.log(`\n  ${key} = ${JSON.stringify(value)} (default: ${JSON.stringify(SETTABLE_KEYS[key].default)})\n`)
     return
   }
 

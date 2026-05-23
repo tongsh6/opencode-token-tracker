@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.1] - 2026-05-24
+
+### Fixed
+
+- `config get` now correctly displays unset values instead of showing "Unknown key" after `config unset`
+- `saveConfig` creates parent directories when they don't exist, fixing CI test failures
+
 ## [1.6.0] - 2026-05-24
 
 ### Added
