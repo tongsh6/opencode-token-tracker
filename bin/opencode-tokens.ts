@@ -1118,43 +1118,29 @@ function buildLineRows(points: ChartPoint[], width: number, height: number): str
       }
     } else if (rCurr < rNext) {
       // Going down (larger row index)
-      const dy = rNext - rCurr
-      if (dy === 1) {
-        if (grid[rCurr][x] === " ") {
-          grid[rCurr][x] = "╲"
+      if (grid[rCurr][x] === " ") {
+        grid[rCurr][x] = "┐"
+      }
+      for (let y = rCurr + 1; y < rNext; y++) {
+        if (grid[y][x] === " ") {
+          grid[y][x] = "│"
         }
-      } else {
-        if (grid[rCurr][x] === " ") {
-          grid[rCurr][x] = "┐"
-        }
-        for (let y = rCurr + 1; y < rNext; y++) {
-          if (grid[y][x] === " ") {
-            grid[y][x] = "│"
-          }
-        }
-        if (grid[rNext][x] === " ") {
-          grid[rNext][x] = "└"
-        }
+      }
+      if (grid[rNext][x] === " ") {
+        grid[rNext][x] = "└"
       }
     } else {
       // Going up (smaller row index)
-      const dy = rCurr - rNext
-      if (dy === 1) {
-        if (grid[rCurr][x] === " ") {
-          grid[rCurr][x] = "╱"
+      if (grid[rCurr][x] === " ") {
+        grid[rCurr][x] = "┘"
+      }
+      for (let y = rNext + 1; y < rCurr; y++) {
+        if (grid[y][x] === " ") {
+          grid[y][x] = "│"
         }
-      } else {
-        if (grid[rCurr][x] === " ") {
-          grid[rCurr][x] = "┘"
-        }
-        for (let y = rNext + 1; y < rCurr; y++) {
-          if (grid[y][x] === " ") {
-            grid[y][x] = "│"
-          }
-        }
-        if (grid[rNext][x] === " ") {
-          grid[rNext][x] = "┌"
-        }
+      }
+      if (grid[rNext][x] === " ") {
+        grid[rNext][x] = "┌"
       }
     }
   }
