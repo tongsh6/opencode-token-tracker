@@ -1070,34 +1070,60 @@ function metricLabel(metric: string): string {
 function buildLineRows(points: ChartPoint[], width: number, height: number): string[][] {
   const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => " "))
 
-  for (let i = 0; i < points.length - 1; i++) {
+  // 1. Calculate the exact integer row r[x] for every column x from 0 to width - 1
+  const r = Array.from({ length: width }, () => 0)
+  
+  for (let x = 0; x < width; x++) {
+    // Find which segment p[i] -> p[i+1] contains x
+    let i = 0
+    for (; i < points.length - 1; i++) {
+      if (x >= points[i].x && x <= points[i + 1].x) {
+        break
+      }
+    }
+    // Clamp to valid index
+    if (i >= points.length - 1) {
+      i = points.length - 2
+    }
+    
     const p1 = points[i]
     const p2 = points[i + 1]
-
-    const xStart = p1.x
-    const xEnd = p2.x
-
-    if (xStart === xEnd) {
-      const yStart = Math.min(p1.y, p2.y)
-      const yEnd = Math.max(p1.y, p2.y)
-      for (let y = yStart; y <= yEnd; y++) {
-        grid[y][xStart] = "│"
-      }
-      continue
+    
+    if (p1.x === p2.x) {
+      r[x] = p1.y
+    } else {
+      const t = (x - p1.x) / (p2.x - p1.x)
+      const y = p1.y + (p2.y - p1.y) * t
+      r[x] = Math.round(y)
     }
+  }
 
-    for (let x = xStart; x < xEnd; x++) {
-      const yCurr = p1.y + (p2.y - p1.y) * ((x - xStart) / (xEnd - xStart))
-      const yNext = p1.y + (p2.y - p1.y) * ((x + 1 - xStart) / (xEnd - xStart))
-      const rCurr = Math.round(yCurr)
-      const rNext = Math.round(yNext)
-
-      if (rCurr === rNext) {
+  // 2. Plot the line characters based on r[x] and r[x+1]
+  for (let x = 0; x < width; x++) {
+    const rCurr = r[x]
+    
+    if (x === width - 1) {
+      // Last column has no next column, draw horizontal line
+      if (grid[rCurr][x] === " ") {
+        grid[rCurr][x] = "─"
+      }
+      break
+    }
+    
+    const rNext = r[x + 1]
+    
+    if (rCurr === rNext) {
+      if (grid[rCurr][x] === " ") {
+        grid[rCurr][x] = "─"
+      }
+    } else if (rCurr < rNext) {
+      // Going down (larger row index)
+      const dy = rNext - rCurr
+      if (dy === 1) {
         if (grid[rCurr][x] === " ") {
-          grid[rCurr][x] = "─"
+          grid[rCurr][x] = "╲"
         }
-      } else if (rCurr < rNext) {
-        // Going down (larger row index)
+      } else {
         if (grid[rCurr][x] === " ") {
           grid[rCurr][x] = "╮"
         }
@@ -1109,8 +1135,15 @@ function buildLineRows(points: ChartPoint[], width: number, height: number): str
         if (grid[rNext][x] === " ") {
           grid[rNext][x] = "╰"
         }
+      }
+    } else {
+      // Going up (smaller row index)
+      const dy = rCurr - rNext
+      if (dy === 1) {
+        if (grid[rCurr][x] === " ") {
+          grid[rCurr][x] = "╱"
+        }
       } else {
-        // Going up (smaller row index)
         if (grid[rCurr][x] === " ") {
           grid[rCurr][x] = "╯"
         }
