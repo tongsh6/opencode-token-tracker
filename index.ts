@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import type { ModelPricing, TrackerConfig } from "./lib/shared.js"
 import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "./lib/shared.js"
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
 
@@ -16,6 +16,8 @@ const LOG_FILE = join(LOG_DIR, "tokens.jsonl")
 
 let config: TrackerConfig = DEFAULT_CONFIG
 let configWarnings: string[] = []
+let lastConfigLoadTime = 0
+let lastConfigMtime = 0
 
 function loadConfig(): TrackerConfig {
   try {
@@ -31,6 +33,28 @@ function loadConfig(): TrackerConfig {
     configWarnings = ["Config file is not valid JSON, using defaults"]
   }
   return DEFAULT_CONFIG
+}
+
+function ensureLatestConfig(): void {
+  const now = Date.now()
+  if (now - lastConfigLoadTime < 2000) {
+    return
+  }
+
+  lastConfigLoadTime = now
+
+  try {
+    if (existsSync(CONFIG_FILE)) {
+      const stat = statSync(CONFIG_FILE)
+      const mtime = stat.mtimeMs
+      if (mtime !== lastConfigMtime) {
+        config = loadConfig()
+        lastConfigMtime = mtime
+      }
+    }
+  } catch {
+    // Keep current config on error
+  }
 }
 
 // ============================================================================
@@ -375,6 +399,10 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
   try {
     // Load config on plugin init (with validation)
     config = loadConfig()
+    lastConfigLoadTime = Date.now()
+    if (existsSync(CONFIG_FILE)) {
+      lastConfigMtime = statSync(CONFIG_FILE).mtimeMs
+    }
     
     // Initialize in-memory budget tracker (reads JSONL once)
     initBudgetTracker()
@@ -400,6 +428,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
         try {
           // Handle message updates (token tracking)
           if (event.type === "message.updated") {
+            ensureLatestConfig()
             const props = event.properties as { info?: MessageInfo } | undefined
             const info = props?.info
             if (!info?.tokens) return
@@ -492,6 +521,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
 
           // Handle session idle (show summary)
           if (event.type === "session.idle") {
+            ensureLatestConfig()
             if (!config.toast.enabled || !config.toast.showOnIdle) return
             
             const props = event.properties as { sessionID?: string } | undefined
