@@ -1,7 +1,8 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import type { ModelPricing, TrackerConfig } from "./lib/shared.js"
 import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "./lib/shared.js"
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs"
+import { open, type FileHandle } from "fs/promises"
 import { join } from "path"
 import { homedir } from "os"
 
@@ -272,29 +273,80 @@ const budgetTracker: BudgetTracker = {
 function loadCostsSince(since: number): number {
   if (!existsSync(LOG_FILE)) return 0
 
+  let total = 0
+  let fd: number | null = null
   try {
-    const content = readFileSync(LOG_FILE, "utf-8")
-    const lines = content.trim().split("\n").filter(Boolean)
-    let total = 0
+    fd = openSync(LOG_FILE, "r")
+    const stat = statSync(LOG_FILE)
+    const fileSize = stat.size
 
-    for (const line of lines) {
+    const CHUNK_SIZE = 64 * 1024 // 64KB chunks
+    const buffer = Buffer.alloc(CHUNK_SIZE)
+
+    let filePos = fileSize
+    let leftover = ""
+    let shouldStop = false
+
+    while (filePos > 0 && !shouldStop) {
+      const readLength = Math.min(CHUNK_SIZE, filePos)
+      filePos -= readLength
+
+      readSync(fd, buffer, 0, readLength, filePos)
+
+      const chunkStr = buffer.toString("utf8", 0, readLength) + leftover
+      const lines = chunkStr.split("\n")
+
+      // The leftmost line could be cut off, save it for the next chunk read to the left
+      leftover = lines[0]
+
+      // Iterate lines in reverse order (from end to start)
+      for (let i = lines.length - 1; i >= 1; i--) {
+        const line = lines[i].trim()
+        if (!line) continue
+
+        try {
+          const entry = JSON.parse(line)
+          if (entry.type !== "tokens" || !entry.cost) continue
+
+          if (entry._ts < since) {
+            shouldStop = true
+            break
+          }
+
+          total += entry.cost
+        } catch {
+          // Skip malformed lines
+        }
+      }
+    }
+
+    // Include the very first line at the top
+    if (!shouldStop && leftover.trim()) {
       try {
-        const entry = JSON.parse(line)
-        if (entry.type === "tokens" && entry._ts >= since && entry.cost) {
+        const entry = JSON.parse(leftover.trim())
+        if (entry.type === "tokens" && entry.cost && entry._ts >= since) {
           total += entry.cost
         }
       } catch {}
     }
-    return total
   } catch {
-    return 0
+    // 异常路径下放弃部分累加结果，与 1.5.5 之前的语义保持一致，避免下游基于偏小值做预算判断
+    total = 0
+  } finally {
+    if (fd !== null) {
+      try {
+        closeSync(fd)
+      } catch {}
+    }
   }
+
+  return total
 }
 
 /**
  * Initialize budgetTracker from JSONL file (called once at plugin init).
  */
-function initBudgetTracker(): void {
+async function initBudgetTracker(): Promise<void> {
   const now = new Date()
   budgetTracker.dayStart = getStartOfDay(now)
   budgetTracker.weekStart = getStartOfWeek(now)
@@ -308,35 +360,94 @@ function initBudgetTracker(): void {
   }
 
   // Load once using the earliest period boundary
-  const earliest = Math.min(budgetTracker.dayStart, budgetTracker.weekStart, budgetTracker.monthStart)
+  const earliest = Math.min(
+    budget.daily ? budgetTracker.dayStart : Infinity,
+    budget.weekly ? budgetTracker.weekStart : Infinity,
+    budget.monthly ? budgetTracker.monthStart : Infinity
+  )
 
   if (!existsSync(LOG_FILE)) {
     budgetTracker.initialized = true
     return
   }
 
+  let fileHandle: FileHandle | null = null
   try {
-    const content = readFileSync(LOG_FILE, "utf-8")
-    const lines = content.trim().split("\n").filter(Boolean)
+    const stat = statSync(LOG_FILE)
+    const fileSize = stat.size
+
+    fileHandle = await open(LOG_FILE, "r")
+
+    const CHUNK_SIZE = 64 * 1024 // 64KB chunks
+    const buffer = Buffer.alloc(CHUNK_SIZE)
+
+    let filePos = fileSize
+    let leftover = ""
+    let shouldStop = false
 
     let daily = 0
     let weekly = 0
     let monthly = 0
 
-    for (const line of lines) {
+    while (filePos > 0 && !shouldStop) {
+      const readLength = Math.min(CHUNK_SIZE, filePos)
+      filePos -= readLength
+
+      const { bytesRead } = await fileHandle.read(buffer, 0, readLength, filePos)
+
+      const chunkStr = buffer.toString("utf8", 0, bytesRead) + leftover
+      const lines = chunkStr.split("\n")
+
+      // The leftmost line could be cut off, save it for the next chunk read to the left
+      leftover = lines[0]
+
+      // Iterate lines in reverse order (from end to start)
+      for (let i = lines.length - 1; i >= 1; i--) {
+        const line = lines[i].trim()
+        if (!line) continue
+
+        try {
+          const entry = JSON.parse(line)
+          if (entry.type !== "tokens" || !entry.cost) continue
+
+          if (entry._ts < earliest) {
+            shouldStop = true
+            break
+          }
+
+          if (entry._ts >= budgetTracker.dayStart) daily += entry.cost
+          if (entry._ts >= budgetTracker.weekStart) weekly += entry.cost
+          if (entry._ts >= budgetTracker.monthStart) monthly += entry.cost
+        } catch {
+          // Skip malformed lines
+        }
+      }
+    }
+
+    // Include the very first line at the top
+    if (!shouldStop && leftover.trim()) {
       try {
-        const entry = JSON.parse(line)
-        if (entry.type !== "tokens" || !entry.cost || entry._ts < earliest) continue
-        if (entry._ts >= budgetTracker.dayStart) daily += entry.cost
-        if (entry._ts >= budgetTracker.weekStart) weekly += entry.cost
-        if (entry._ts >= budgetTracker.monthStart) monthly += entry.cost
+        const entry = JSON.parse(leftover.trim())
+        if (entry.type === "tokens" && entry.cost && entry._ts >= earliest) {
+          if (entry._ts >= budgetTracker.dayStart) daily += entry.cost
+          if (entry._ts >= budgetTracker.weekStart) weekly += entry.cost
+          if (entry._ts >= budgetTracker.monthStart) monthly += entry.cost
+        }
       } catch {}
     }
 
     budgetTracker.dailySpent = daily
     budgetTracker.weeklySpent = weekly
     budgetTracker.monthlySpent = monthly
-  } catch {}
+  } catch (err) {
+    // Keep budgetTracker at 0 on error
+  } finally {
+    if (fileHandle) {
+      try {
+        await fileHandle.close()
+      } catch {}
+    }
+  }
 
   budgetTracker.initialized = true
 }
@@ -446,6 +557,11 @@ interface MessageInfo {
     cache?: { read?: number; write?: number }
   }
   cost?: number
+  time?: {
+    created?: number
+    completed?: number
+  }
+  finish?: string
 }
 
 export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
@@ -458,9 +574,11 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
     }
     
     // Initialize in-memory budget tracker (reads JSONL once)
-    initBudgetTracker()
-    
-    logJson({ type: "init", directory, configLoaded: existsSync(CONFIG_FILE) })
+    await initBudgetTracker()
+
+    // 不再写 type:"init" 标记：OpenCode 会在多个子进程（LSP、工具 runner 等）独立加载
+    // plugin，每次启动会向 JSONL 写多份重复的 init 行，污染日志且无计费价值。
+    // 跨进程去重的根因修复留待后续版本。
 
     // Show config validation warnings via Toast
     if (configWarnings.length > 0) {
@@ -486,6 +604,15 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             const info = props?.info
             if (!info?.tokens) return
 
+            // 流式中间态保护：仅在消息真正完结时记账，避免对同一条消息重复计费。
+            // 完结信号优先用 time.completed；实证发现 provider 的 finish reason
+            // 会在 time.completed 之前一帧出现且此时 tokens 已完整，因此把 finish
+            // 也作为有效的完结信号，避免极端断流时漏掉最后一帧。
+            // 通过 modelID 识别 AI 生成消息（user 消息无此字段），不再硬编码 role。
+            if (info.modelID && !info.time?.completed && !info.finish) {
+              return
+            }
+
             const messageId = info.id
             const sessionId = info.sessionID
             if (!messageId || !sessionId) return
@@ -496,10 +623,10 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             const cacheRead = info.tokens.cache?.read ?? 0
             const cacheWrite = info.tokens.cache?.write ?? 0
 
-            const hasTokens = input > 0 || output > 0
+            const hasTokens = input > 0 || output > 0 || cacheRead > 0 || cacheWrite > 0
             if (!hasTokens) return
 
-            const dedupeKey = `${messageId}-${input}-${output}`
+            const dedupeKey = `${messageId}-${input}-${output}-${cacheRead}-${cacheWrite}`
             if (isDuplicate(dedupeKey)) return
 
             const model = info.model?.modelID ?? info.modelID ?? "unknown"
