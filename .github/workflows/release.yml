@@ -60,9 +60,9 @@ jobs:
           # so that `npm install opencode-token-tracker` (which uses "latest")
           # never picks up a prerelease.
           if [[ "${GITHUB_REF_NAME#v}" == *-* ]]; then
-            npm publish --access public --provenance --tag next
+            npm publish --access public --tag next
           else
-            npm publish --access public --provenance
+            npm publish --access public
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
