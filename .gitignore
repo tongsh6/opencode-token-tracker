@@ -26,3 +26,6 @@ Thumbs.db
 # Test coverage
 coverage/
 dist/
+
+# OpenCode internal
+.omo/
