@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.7] - 2026-05-24
+
+### Fixed
+
+- Partial pricing matching now prefers longer (more specific) keys by sorting entries by key length descending before iteration. Prevents shorter keys like `gpt-4o` from shadowing longer keys like `gpt-4o-mini` when both match a variant model name such as `gpt-4o-mini-2024-07-18`. (#60)
+- Restored correct 6-step pricing resolution priority in `getModelPricing()`. v1.5.1 inadvertently promoted user config partial matching above built-in exact matching, causing broad config keys (e.g. `"claude"`) to override precise built-in pricing. User config partial matching now correctly runs after built-in exact and partial resolution. (#60)
+- `cmdModels` CLI status labels now mirror the same resolution order as the plugin runtime, eliminating cases where the CLI displayed `"model cfg"` but the runtime used built-in pricing. (#60)
+- Config validation no longer produces misleading cascading warnings when a flat pricing entry contains invalid values. Previously, a malformed entry like `{input: "free"}` would generate up to 4 contradictory warnings; now it produces a single clear diagnostic. (#60)
+
+### Changed
+
+- Simplified `isDirectModelPricing` to a pure type guard, removing redundant post-validation value checks already performed by `validateConfig`. (#60)
+
 ## [1.5.6] - 2026-05-23
 
 ### Fixed
@@ -119,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Corrected bin path format in package.json
 
+[1.5.6]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.5...v1.5.6
 [1.5.5]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.2...v1.5.3
