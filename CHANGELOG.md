@@ -5,40 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.6.4] - 2026-05-24
-
-### Changed
-
-- Trend chart uses Braille characters for 4× resolution boost (2×4 dot grid per character), adaptive chart height, and summary line with peak/avg/delta
-
-## [1.6.3] - 2026-05-24
-
-### Fixed
-
-- Trend chart uses per-row intersection rendering for clean single-character diagonals, proper horizontal `───` connections, and correct corner characters at slope-to-flat transitions
-
-## [1.6.2] - 2026-05-24
-
-### Fixed
-
-- `opencode-tokens trend` chart rendering produces clean single-line diagonals using per-row intersection math instead of thick filled regions
-
-## [1.6.1] - 2026-05-24
-
-### Fixed
-
-- `config get` now correctly displays unset values instead of showing "Unknown key" after `config unset`
-- `saveConfig` creates parent directories when they don't exist, fixing CI test failures
-
 ## [1.6.0] - 2026-05-24
 
 ### Added
 
-- `opencode-tokens trend` — ASCII line chart of daily cost/tokens/messages over time with box-drawing characters (#57)
-- `opencode-tokens --by session` — group statistics by session ID (#57)
-- `opencode-tokens export --format csv|json` — export token entries to CSV or JSON with optional file output (#57)
-- `opencode-tokens config set/get/unset <key> [value]` — manage budget and toast settings directly from CLI, with type validation and automatic backup (#57)
+- `opencode-tokens trend` — High-resolution daily cost/tokens/messages chart over time using Braille characters (4× resolution boost, 2×4 dot grid per character) with clean diagonal slope intersections, horizontal box-drawing lines, and an adaptive height summary containing peak/avg/delta values (#57)
+- `opencode-tokens --by session` — Group statistics by session ID (#57)
+- `opencode-tokens export --format csv|json` — Export token entries to CSV or JSON with optional file output (#57)
+- `opencode-tokens config set/get/unset <key> [value]` — Manage budget and toast settings directly from CLI, with type validation, automatic backup, and proper display of unset keys (#57)
 - Internal CLI argparse helper for consistent `--flag value` / `--flag=value` / `-f value` parsing across all subcommands
+
+### Fixed
+
+- `saveConfig` now automatically creates parent directories when they don't exist, preventing unexpected IO/CI test failures
 
 ## [1.5.7] - 2026-05-24
 
