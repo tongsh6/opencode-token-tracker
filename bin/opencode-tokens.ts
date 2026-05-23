@@ -1050,8 +1050,6 @@ interface ChartPoint {
   y: number
 }
 
-const BRAILLE_DOTS = [0x01, 0x02, 0x04, 0x40, 0x08, 0x10, 0x20, 0x80]
-
 function getTrendValue(point: TrendPoint, metric: string): number {
   return metric === "tokens" ? point.tokens : metric === "messages" ? point.messages : point.cost
 }
@@ -1069,37 +1067,87 @@ function metricLabel(metric: string): string {
   return metric === "tokens" ? "Token Trend" : metric === "messages" ? "Message Trend" : "Cost Trend"
 }
 
-function addBraillePoint(cells: number[][], x: number, y: number): void {
-  const cellX = Math.floor(x / 2)
-  const cellY = Math.floor(y / 4)
-  const dotX = x % 2
-  const dotY = y % 4
-  cells[cellY][cellX] |= BRAILLE_DOTS[dotX * 4 + dotY]
-}
+function buildLineRows(points: ChartPoint[], width: number, height: number): string[][] {
+  const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => " "))
 
-function buildBrailleRows(points: ChartPoint[], width: number, height: number): string[] {
-  const cells = Array.from({ length: height }, () => Array.from({ length: width }, () => 0))
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i]
+    const p2 = points[i + 1]
 
-  for (let i = 1; i < points.length; i++) {
-    const from = points[i - 1]
-    const to = points[i]
-    const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y), 1)
+    const xStart = p1.x
+    const xEnd = p2.x
 
-    for (let step = 0; step <= steps; step++) {
-      const t = step / steps
-      addBraillePoint(
-        cells,
-        Math.round(from.x + (to.x - from.x) * t),
-        Math.round(from.y + (to.y - from.y) * t)
-      )
+    if (xStart === xEnd) {
+      const yStart = Math.min(p1.y, p2.y)
+      const yEnd = Math.max(p1.y, p2.y)
+      for (let y = yStart; y <= yEnd; y++) {
+        grid[y][xStart] = "│"
+      }
+      continue
+    }
+
+    for (let x = xStart; x < xEnd; x++) {
+      const yCurr = p1.y + (p2.y - p1.y) * ((x - xStart) / (xEnd - xStart))
+      const yNext = p1.y + (p2.y - p1.y) * ((x + 1 - xStart) / (xEnd - xStart))
+      const rCurr = Math.round(yCurr)
+      const rNext = Math.round(yNext)
+
+      if (rCurr === rNext) {
+        if (grid[rCurr][x] === " ") {
+          grid[rCurr][x] = "─"
+        }
+      } else if (rCurr < rNext) {
+        // Going down (larger row index)
+        if (grid[rCurr][x] === " ") {
+          grid[rCurr][x] = "╮"
+        }
+        for (let y = rCurr + 1; y < rNext; y++) {
+          if (grid[y][x] === " ") {
+            grid[y][x] = "│"
+          }
+        }
+        if (grid[rNext][x] === " ") {
+          grid[rNext][x] = "╰"
+        }
+      } else {
+        // Going up (smaller row index)
+        if (grid[rCurr][x] === " ") {
+          grid[rCurr][x] = "╯"
+        }
+        for (let y = rNext + 1; y < rCurr; y++) {
+          if (grid[y][x] === " ") {
+            grid[y][x] = "│"
+          }
+        }
+        if (grid[rNext][x] === " ") {
+          grid[rNext][x] = "╭"
+        }
+      }
     }
   }
 
-  return cells.map(row => row.map(mask => mask === 0 ? " " : String.fromCharCode(0x2800 + mask)).join(""))
+  // Overwrite the actual data points with a beautiful dot
+  for (const p of points) {
+    grid[p.y][p.x] = "●"
+  }
+
+  return grid
 }
 
-function buildTrendXAxis(points: Array<[number, TrendPoint]>, chartPoints: ChartPoint[], chartWidth: number): string {
+const ESC = "\x1b"
+const RESET = `${ESC}[0m`
+const BOLD = `${ESC}[1m`
+const DIM = `${ESC}[2m`
+const GRAY = `${ESC}[90m`
+
+interface AxisInfo {
+  axisTicks: string
+  axisLabels: string
+}
+
+function buildTrendXAxis(points: Array<[number, TrendPoint]>, chartPoints: ChartPoint[], chartWidth: number): AxisInfo {
   const labelChars = Array.from({ length: chartWidth }, () => " ")
+  const tickChars = Array.from({ length: chartWidth }, () => "─")
   const labelStep = Math.max(1, Math.ceil(points.length / 6))
 
   for (let i = 0; i < chartPoints.length; i++) {
@@ -1107,16 +1155,23 @@ function buildTrendXAxis(points: Array<[number, TrendPoint]>, chartPoints: Chart
 
     const date = new Date(points[i][0])
     const label = `${date.getMonth() + 1}/${date.getDate()}`
-    const start = Math.min(Math.max(0, chartPoints[i].x - Math.floor(label.length / 2)), Math.max(0, chartWidth - label.length))
+    const centerOfLabel = chartPoints[i].x
+    const start = Math.min(Math.max(0, centerOfLabel - Math.floor(label.length / 2)), Math.max(0, chartWidth - label.length))
     const hasSpace = labelChars.slice(Math.max(0, start - 1), Math.min(chartWidth, start + label.length + 1)).every((c) => c === " ")
 
     if (!hasSpace) continue
     for (let j = 0; j < label.length; j++) {
       labelChars[start + j] = label[j]
     }
+    if (centerOfLabel < chartWidth) {
+      tickChars[centerOfLabel] = "┬"
+    }
   }
 
-  return labelChars.join("")
+  return {
+    axisTicks: tickChars.join(""),
+    axisLabels: labelChars.join("")
+  }
 }
 
 function cmdTrend(flags: Map<string, string | boolean>) {
@@ -1159,6 +1214,14 @@ function cmdTrend(flags: Map<string, string | boolean>) {
   const values = sorted.map(([, d]) => getTrendValue(d, metric))
   const maxVal = Math.max(...values, 1)
   const minVal = Math.min(...values)
+  const valRange = maxVal - minVal
+  
+  // Adaptive scaling padding (e.g. 5% of range) to show beautiful ups & downs
+  const pad = valRange === 0 ? maxVal * 0.1 : valRange * 0.05
+  const chartMax = maxVal + pad
+  const chartMin = Math.max(0, minVal - pad)
+  const chartRange = chartMax - chartMin || 1
+
   const totalVal = values.reduce((sum, value) => sum + value, 0)
   const avgVal = totalVal / values.length
   const deltaVal = values[values.length - 1] - values[0]
@@ -1174,36 +1237,59 @@ function cmdTrend(flags: Map<string, string | boolean>) {
 
   const chartWidth = Math.max(width - 12, 20)
   const yLabelStep = Math.max(1, Math.floor(chartHeight / 4))
-  const dotWidth = chartWidth * 2
-  const dotHeight = chartHeight * 4
 
   const chartPoints = values.map((value, i) => ({
-    x: values.length === 1 ? Math.floor(dotWidth / 2) : Math.round((i / (values.length - 1)) * (dotWidth - 1)),
-    y: Math.max(0, dotHeight - 1 - Math.round((value / maxVal) * (dotHeight - 1))),
+    x: values.length === 1 ? Math.floor(chartWidth / 2) : Math.round((i / (values.length - 1)) * (chartWidth - 1)),
+    y: Math.max(0, chartHeight - 1 - Math.round(((value - chartMin) / chartRange) * (chartHeight - 1))),
   }))
 
-  const rows = buildBrailleRows(chartPoints, chartWidth, chartHeight)
-  const labelPoints = chartPoints.map(point => ({ x: Math.floor(point.x / 2), y: point.y }))
+  const grid = buildLineRows(chartPoints, chartWidth, chartHeight)
+
+  // Metric premium color themes
+  let metricColor = "\x1b[36m" // default Cyan
+  if (metric === "cost") {
+    metricColor = "\x1b[32m" // Green
+  } else if (metric === "messages") {
+    metricColor = "\x1b[33m" // Yellow
+  }
+
+  const peakStr = `${metricColor}${BOLD}${formatTrendValue(maxVal, metric)}${RESET}`
+  const avgStr = `${metricColor}${BOLD}${formatTrendValue(avgVal, metric)}${RESET}`
+
+  let deltaColor = "\x1b[32m" // Green
+  if (metric === "cost") {
+    deltaColor = deltaVal > 0 ? "\x1b[31m" : "\x1b[32m" // Red for cost increase, Green for decrease
+  } else {
+    deltaColor = deltaVal > 0 ? "\x1b[32m" : "\x1b[31m" // Green for token/msg increase, Red for decrease
+  }
+  const deltaStr = `${deltaColor}${BOLD}${formatSignedTrendValue(deltaVal, metric)}${RESET}`
 
   const lines: string[] = []
 
-  lines.push(`${metricLabel(metric)} · ${sorted.length} days · peak ${formatTrendValue(maxVal, metric)} · avg ${formatTrendValue(avgVal, metric)} · Δ ${formatSignedTrendValue(deltaVal, metric)}`)
-  lines.push(`range ${formatTrendValue(minVal, metric)} → ${formatTrendValue(maxVal, metric)}`)
+  lines.push(`${metricColor}${BOLD}${metricLabel(metric)}${RESET} · ${sorted.length} days · peak ${peakStr} · avg ${avgStr} · Δ ${deltaStr}`)
+  lines.push(`${GRAY}range ${formatTrendValue(minVal, metric)} → ${formatTrendValue(maxVal, metric)}${RESET}`)
+
+  // Colorize the line chart points and connection characters
+  const colorRows = grid.map(row => 
+    row.map(char => char === " " ? " " : `${metricColor}${char}${RESET}`).join("")
+  )
+
+  const { axisTicks, axisLabels } = buildTrendXAxis(sorted, chartPoints, chartWidth)
 
   for (let row = 0; row < chartHeight; row++) {
     const valueRatio = 1 - row / (chartHeight - 1)
-    const valAtRow = valueRatio * maxVal
-    const label = row === 0 || row === chartHeight - 1 || row % yLabelStep === 0
-      ? formatTrendValue(valAtRow, metric)
-      : ""
-    const line = `${padLeft(label, 9)} ┤${rows[row]}`
+    const valAtRow = chartMin + valueRatio * chartRange
+    const hasLabel = row === 0 || row === chartHeight - 1 || row % yLabelStep === 0
+    const label = hasLabel ? formatTrendValue(valAtRow, metric) : ""
+    const tick = hasLabel ? "┤" : "│"
+    const line = `${padLeft(label, 9)} ${GRAY}${tick}${RESET}${colorRows[row]}`
     lines.push(line)
   }
 
-  const axis = `${" ".repeat(9)} └${"─".repeat(chartWidth)}`
+  const axis = `${" ".repeat(9)} ${GRAY}└${axisTicks}${RESET}`
   lines.push(axis)
 
-  lines.push(`${" ".repeat(11)}${buildTrendXAxis(sorted, labelPoints, chartWidth)}`)
+  lines.push(`${" ".repeat(11)}${GRAY}${axisLabels}${RESET}`)
 
   console.log()
   for (const l of lines) console.log(`  ${l}`)

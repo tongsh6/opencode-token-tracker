@@ -5,11 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.6.0] - 2026-05-24
+## [1.6.5] - 2026-05-24
 
 ### Added
 
-- `opencode-tokens trend` — High-resolution daily cost/tokens/messages chart over time using Braille characters (4× resolution boost, 2×4 dot grid per character) with clean diagonal slope intersections, horizontal box-drawing lines, and an adaptive height summary containing peak/avg/delta values (#57)
+- `opencode-tokens trend` — High-resolution daily cost/tokens/messages trend chart over time using smooth, continuous rounded-arc Unicode box-drawing characters (`╭`, `╯`, `╰`, `╮`) and precise X-axis ticks, featuring an adaptive height layout containing peak/avg/delta statistics. (#57)
 - `opencode-tokens --by session` — Group statistics by session ID (#57)
 - `opencode-tokens export --format csv|json` — Export token entries to CSV or JSON with optional file output (#57)
 - `opencode-tokens config set/get/unset <key> [value]` — Manage budget and toast settings directly from CLI, with type validation, automatic backup, and proper display of unset keys (#57)
@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - `saveConfig` now automatically creates parent directories when they don't exist, preventing unexpected IO/CI test failures
+- Consolidated and unified releases 1.6.0 through 1.6.4 into a stable 1.6.5 release, resolving visual alignment and terminal font-spacing staircase gaps in the CLI trend chart.
 
 ## [1.5.7] - 2026-05-24
 
