@@ -5,17 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.5.7-rc.1] - 2026-05-23
-
-### Internal
-
-- Dry-run release to validate the new tag-triggered GitHub Actions workflow end-to-end. Re-attempt after fixing the `release` environment deployment policy (a previous `v*` tag policy rejected versions containing `-`). No user-facing changes.
-
 ## [1.5.7-rc.0] - 2026-05-23
 
 ### Internal
 
-- Initial dry-run attempt. Failed because the `release` environment's `v*` tag policy did not match `v1.5.7-rc.0` (GitHub deployment policy glob does not span `-`). Superseded by 1.5.7-rc.1.
+- Dry-run release to validate the new tag-triggered GitHub Actions workflow end-to-end (npm publish with provenance + GitHub Release creation + prerelease handling). No user-facing changes.
 
 ## [1.5.6] - 2026-05-23
 
