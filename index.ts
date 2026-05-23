@@ -68,8 +68,8 @@ function getModelPricing(model: string, provider: string): ModelPricing {
     return config.providers[provider]
   }
   
-  // 2. Check user-defined model pricing
-  const configuredPricing = findModelConfigPricing(config.models, model, provider)
+  // 2. Check user-defined model pricing (exact match only)
+  const configuredPricing = findModelConfigPricing(config.models, model, provider, false)
   if (configuredPricing) {
     return configuredPricing
   }
@@ -81,13 +81,19 @@ function getModelPricing(model: string, provider: string): ModelPricing {
   
   // 4. Try partial match in built-in pricing
   const modelLower = model.toLowerCase()
-  for (const [key, pricing] of Object.entries(BUILTIN_PRICING)) {
+  for (const [key, pricing] of Object.entries(BUILTIN_PRICING).sort(([a], [b]) => b.length - a.length)) {
     if (key !== "_default" && modelLower.includes(key.toLowerCase())) {
       return pricing
     }
   }
   
-  // 5. Fallback to default
+  // 5. Try partial match in user config
+  const partialUserPricing = findModelConfigPricing(config.models, model, provider, true)
+  if (partialUserPricing) {
+    return partialUserPricing
+  }
+  
+  // 6. Fallback to default
   return BUILTIN_PRICING["_default"]
 }
 

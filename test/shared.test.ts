@@ -460,6 +460,60 @@ describe("findModelConfigPricing", () => {
       { input: 1, output: 2 }
     )
   })
+
+  it("should prefer longer key over shorter key in partial matches (longest-first)", () => {
+    const result = validateConfig({
+      models: {
+        "gpt-4.1": { input: 3, output: 12 },
+        "gpt-4.1-mini": { input: 0.8, output: 3.2 },
+      },
+    })
+
+    assert.deepEqual(
+      findModelConfigPricing(result.config.models, "gpt-4.1-mini-2025", "openai"),
+      { input: 0.8, output: 3.2 }
+    )
+  })
+
+  it("should prefer longer key regardless of insertion order (longest-first)", () => {
+    const result = validateConfig({
+      models: {
+        "gpt-4.1-mini": { input: 0.8, output: 3.2 },
+        "gpt-4.1": { input: 3, output: 12 },
+      },
+    })
+
+    assert.deepEqual(
+      findModelConfigPricing(result.config.models, "gpt-4.1-mini-2025", "openai"),
+      { input: 0.8, output: 3.2 }
+    )
+  })
+
+  it("should not match partial keys when partial=false (exact-only mode)", () => {
+    const result = validateConfig({
+      models: {
+        "claude": { input: 0, output: 0 },
+      },
+    })
+
+    assert.equal(
+      findModelConfigPricing(result.config.models, "claude-opus-4.6", "anthropic", false),
+      undefined
+    )
+  })
+
+  it("should match partial keys when partial=true (backward compatible)", () => {
+    const result = validateConfig({
+      models: {
+        "claude": { input: 0, output: 0 },
+      },
+    })
+
+    assert.deepEqual(
+      findModelConfigPricing(result.config.models, "claude-opus-4.6", "anthropic", true),
+      { input: 0, output: 0 }
+    )
+  })
 })
 
 // ============================================================================
@@ -552,6 +606,47 @@ describe("calculateCost", () => {
     // cacheWrite = 100K = 0.1 * 1.00 * 0 = $0 (free cache write)
     // total = 0.90 + 4.00 + 0.01 = $4.91
     assert.ok(Math.abs(costFallback - 4.91) < 0.0001, `expected 4.91, got ${costFallback}`)
+  })
+})
+
+// ============================================================================
+// calculateCost partial match — longest-key-first regression
+// ============================================================================
+
+describe("calculateCost partial match (longest-key-first)", () => {
+  it("should match gpt-4o-mini over gpt-4o for variant model name", () => {
+    // gpt-4o-mini-2024-07-18 should match gpt-4o-mini ($0.15/$0.6), not gpt-4o ($2.5/$10)
+    const cost = calculateCost("gpt-4o-mini-2024-07-18", "openai", 1_000_000, 1_000_000)
+    // Expected: input 0.15 + output 0.6 = 0.75 (no cache in this test)
+    assert.ok(Math.abs(cost - 0.75) < 0.001, `expected 0.75, got ${cost}`)
+  })
+
+  it("should match o3-mini over o3 for variant model name", () => {
+    // o3-mini-high should match o3-mini ($1.1/$4.4), not o3 ($10/$40)
+    const cost = calculateCost("o3-mini-high", "openai", 1_000_000, 1_000_000)
+    // Expected: input 1.1 + output 4.4 = 5.5
+    assert.ok(Math.abs(cost - 5.5) < 0.001, `expected 5.5, got ${cost}`)
+  })
+
+  it("should match gemini-2.5-flash-lite over gemini-2.5-flash for variant model name", () => {
+    // gemini-2.5-flash-lite-preview should match gemini-2.5-flash-lite ($0.1/$0.4), not gemini-2.5-flash ($0.3/$2.5)
+    const cost = calculateCost("gemini-2.5-flash-lite-preview", "google", 1_000_000, 1_000_000)
+    // Expected: input 0.1 + output 0.4 = 0.5
+    assert.ok(Math.abs(cost - 0.5) < 0.001, `expected 0.5, got ${cost}`)
+  })
+
+  it("should match gpt-5.2-pro over gpt-5.2 for variant model name", () => {
+    // gpt-5.2-pro-2025 should match gpt-5.2-pro ($21/$168), not gpt-5.2 ($1.75/$14)
+    const cost = calculateCost("gpt-5.2-pro-2025", "openai", 1_000_000, 1_000_000)
+    // Expected: input 21 + output 168 = 189
+    assert.ok(Math.abs(cost - 189) < 0.01, `expected 189, got ${cost}`)
+  })
+
+  it("should match o1-mini over o1 for variant model name", () => {
+    // o1-mini-high should match o1-mini ($1.1/$4.4), not o1 ($15/$60)
+    const cost = calculateCost("o1-mini-high", "openai", 1_000_000, 1_000_000)
+    // Expected: input 1.1 + output 4.4 = 5.5
+    assert.ok(Math.abs(cost - 5.5) < 0.001, `expected 5.5, got ${cost}`)
   })
 })
 

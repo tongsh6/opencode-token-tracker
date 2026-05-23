@@ -369,14 +369,19 @@ export function findModelConfigPricing(
   models: TrackerConfig["models"],
   model: string,
   provider: string,
+  partial: boolean = true,
 ): ModelPricing | undefined {
   const exactMatch = resolveModelConfigEntry(models[model], provider)
   if (exactMatch) {
     return exactMatch
   }
 
+  if (!partial) return undefined
+
   const modelLower = model.toLowerCase()
-  for (const [key, entry] of Object.entries(models)) {
+  // Sort by key length descending so longer (more specific) keys are checked first
+  const sorted = Object.entries(models).sort(([a], [b]) => b.length - a.length)
+  for (const [key, entry] of sorted) {
     if (modelLower.includes(key.toLowerCase())) {
       const partialMatch = resolveModelConfigEntry(entry, provider)
       if (partialMatch) {
