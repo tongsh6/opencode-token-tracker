@@ -372,150 +372,157 @@ interface MessageInfo {
 }
 
 export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
-  // Load config on plugin init (with validation)
-  config = loadConfig()
-  
-  // Initialize in-memory budget tracker (reads JSONL once)
-  initBudgetTracker()
-  
-  logJson({ type: "init", directory, configLoaded: existsSync(CONFIG_FILE) })
+  try {
+    // Load config on plugin init (with validation)
+    config = loadConfig()
+    
+    // Initialize in-memory budget tracker (reads JSONL once)
+    initBudgetTracker()
+    
+    logJson({ type: "init", directory, configLoaded: existsSync(CONFIG_FILE) })
 
-  // Show config validation warnings via Toast
-  if (configWarnings.length > 0) {
-    try {
-      await client.tui.showToast({
-        body: {
-          title: "Token Tracker: config warning",
-          message: configWarnings.join("; "),
-          variant: "warning",
-          duration: 5000,
-        },
-      })
-    } catch {}
-  }
-
-  return {
-    event: async ({ event }) => {
+    // Show config validation warnings via Toast
+    if (configWarnings.length > 0) {
       try {
-        // Handle message updates (token tracking)
-        if (event.type === "message.updated") {
-          const props = event.properties as { info?: MessageInfo } | undefined
-          const info = props?.info
-          if (!info?.tokens) return
+        await client.tui.showToast({
+          body: {
+            title: "Token Tracker: config warning",
+            message: configWarnings.join("; "),
+            variant: "warning",
+            duration: 5000,
+          },
+        })
+      } catch {}
+    }
 
-          const messageId = info.id
-          const sessionId = info.sessionID
-          if (!messageId || !sessionId) return
+    return {
+      event: async ({ event }) => {
+        try {
+          // Handle message updates (token tracking)
+          if (event.type === "message.updated") {
+            const props = event.properties as { info?: MessageInfo } | undefined
+            const info = props?.info
+            if (!info?.tokens) return
 
-          const input = info.tokens.input ?? 0
-          const output = info.tokens.output ?? 0
-          const reasoning = info.tokens.reasoning ?? 0
-          const cacheRead = info.tokens.cache?.read ?? 0
-          const cacheWrite = info.tokens.cache?.write ?? 0
+            const messageId = info.id
+            const sessionId = info.sessionID
+            if (!messageId || !sessionId) return
 
-          const hasTokens = input > 0 || output > 0
-          if (!hasTokens) return
+            const input = info.tokens.input ?? 0
+            const output = info.tokens.output ?? 0
+            const reasoning = info.tokens.reasoning ?? 0
+            const cacheRead = info.tokens.cache?.read ?? 0
+            const cacheWrite = info.tokens.cache?.write ?? 0
 
-          const dedupeKey = `${messageId}-${input}-${output}`
-          if (isDuplicate(dedupeKey)) return
+            const hasTokens = input > 0 || output > 0
+            if (!hasTokens) return
 
-          const model = info.model?.modelID ?? info.modelID ?? "unknown"
-          const provider = info.model?.providerID ?? info.providerID ?? "unknown"
-          const cost = calculateCost(model, provider, input, output, cacheRead, cacheWrite)
+            const dedupeKey = `${messageId}-${input}-${output}`
+            if (isDuplicate(dedupeKey)) return
 
-          // Update session stats
-          const stats = getOrCreateSessionStats(sessionId)
-          stats.totalInput += input
-          stats.totalOutput += output
-          stats.totalReasoning += reasoning
-          stats.totalCacheRead += cacheRead
-          stats.totalCacheWrite += cacheWrite
-          stats.totalCost += cost
-          stats.messageCount += 1
+            const model = info.model?.modelID ?? info.modelID ?? "unknown"
+            const provider = info.model?.providerID ?? info.providerID ?? "unknown"
+            const cost = calculateCost(model, provider, input, output, cacheRead, cacheWrite)
 
-          // Log to file
-          logJson({
-            type: "tokens",
-            sessionId,
-            messageId,
-            role: info.role,
-            agent: info.agent,
-            model,
-            provider,
-            input,
-            output,
-            reasoning,
-            cacheRead,
-            cacheWrite,
-            cost,
-          })
+            // Update session stats
+            const stats = getOrCreateSessionStats(sessionId)
+            stats.totalInput += input
+            stats.totalOutput += output
+            stats.totalReasoning += reasoning
+            stats.totalCacheRead += cacheRead
+            stats.totalCacheWrite += cacheWrite
+            stats.totalCost += cost
+            stats.messageCount += 1
 
-          // Accumulate cost into in-memory budget tracker
-          accumulateBudget(cost)
+            // Log to file
+            logJson({
+              type: "tokens",
+              sessionId,
+              messageId,
+              role: info.role,
+              agent: info.agent,
+              model,
+              provider,
+              input,
+              output,
+              reasoning,
+              cacheRead,
+              cacheWrite,
+              cost,
+            })
 
-          // Show toast for this message
-          if (config.toast.enabled) {
-            const totalTokens = input + output
-            
-            // Check budget status
-            const budgetStatus = checkBudgetStatus()
-            
-            let title = `${formatTokens(totalTokens)} tokens`
-            let message = `${formatCost(cost)} | Session: ${formatCost(stats.totalCost)}`
-            let variant: "info" | "warning" | "error" = "info"
-            
-            // Add budget warning/alert if applicable
-            if (budgetStatus) {
-              if (budgetStatus.exceeded) {
-                title = `⚠️ Budget exceeded!`
-                message = formatBudgetMessage(budgetStatus)
-                variant = "error"
-              } else if (budgetStatus.warning) {
-                message = `${formatCost(cost)} | ${formatBudgetMessage(budgetStatus)}`
-                variant = "warning"
+            // Accumulate cost into in-memory budget tracker
+            accumulateBudget(cost)
+
+            // Show toast for this message
+            if (config.toast.enabled) {
+              const totalTokens = input + output
+              
+              // Check budget status
+              const budgetStatus = checkBudgetStatus()
+              
+              let title = `${formatTokens(totalTokens)} tokens`
+              let message = `${formatCost(cost)} | Session: ${formatCost(stats.totalCost)}`
+              let variant: "info" | "warning" | "error" = "info"
+              
+              // Add budget warning/alert if applicable
+              if (budgetStatus) {
+                if (budgetStatus.exceeded) {
+                  title = `⚠️ Budget exceeded!`
+                  message = formatBudgetMessage(budgetStatus)
+                  variant = "error"
+                } else if (budgetStatus.warning) {
+                  message = `${formatCost(cost)} | ${formatBudgetMessage(budgetStatus)}`
+                  variant = "warning"
+                }
               }
+              
+              try {
+                await client.tui.showToast({
+                  body: {
+                    title,
+                    message,
+                    variant,
+                    duration: budgetStatus?.exceeded ? 5000 : config.toast.duration,
+                  },
+                })
+              } catch {}
             }
+          }
+
+          // Handle session idle (show summary)
+          if (event.type === "session.idle") {
+            if (!config.toast.enabled || !config.toast.showOnIdle) return
             
+            const props = event.properties as { sessionID?: string } | undefined
+            const sessionId = props?.sessionID
+            if (!sessionId) return
+
+            const stats = sessionStats.get(sessionId)
+            if (!stats || stats.messageCount === 0) return
+
+            const duration = Math.round((Date.now() - stats.startTime) / 1000 / 60)
+            const totalTokens = stats.totalInput + stats.totalOutput
+
             try {
               await client.tui.showToast({
                 body: {
-                  title,
-                  message,
-                  variant,
-                  duration: budgetStatus?.exceeded ? 5000 : config.toast.duration,
+                  title: `Session: ${formatTokens(totalTokens)} tokens`,
+                  message: `${formatCost(stats.totalCost)} | ${stats.messageCount} msgs | ${duration}min`,
+                  variant: "info",
+                  duration: 5000,
                 },
               })
             } catch {}
           }
-        }
-
-        // Handle session idle (show summary)
-        if (event.type === "session.idle") {
-          if (!config.toast.enabled || !config.toast.showOnIdle) return
-          
-          const props = event.properties as { sessionID?: string } | undefined
-          const sessionId = props?.sessionID
-          if (!sessionId) return
-
-          const stats = sessionStats.get(sessionId)
-          if (!stats || stats.messageCount === 0) return
-
-          const duration = Math.round((Date.now() - stats.startTime) / 1000 / 60)
-          const totalTokens = stats.totalInput + stats.totalOutput
-
-          try {
-            await client.tui.showToast({
-              body: {
-                title: `Session: ${formatTokens(totalTokens)} tokens`,
-                message: `${formatCost(stats.totalCost)} | ${stats.messageCount} msgs | ${duration}min`,
-                variant: "info",
-                duration: 5000,
-              },
-            })
-          } catch {}
-        }
-      } catch {}
-    },
+        } catch {}
+      },
+    }
+  } catch (err) {
+    console.error("[Token Tracker] Initialization failed:", err)
+    return {
+      event: async () => {},
+    }
   }
 }
 
