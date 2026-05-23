@@ -11,6 +11,8 @@ import {
   getStartOfMonth,
   validateConfig,
 } from "../lib/shared.js"
+import { getProviderFamily, calculateCost } from "../index.js"
+
 
 // ============================================================================
 // formatCost
@@ -459,3 +461,97 @@ describe("findModelConfigPricing", () => {
     )
   })
 })
+
+// ============================================================================
+// getProviderFamily
+// ============================================================================
+
+describe("getProviderFamily", () => {
+  it("should detect anthropic for various combinations", () => {
+    assert.equal(getProviderFamily("claude-opus-4.6", "openai"), "anthropic")
+    assert.equal(getProviderFamily("some-model", "anthropic"), "anthropic")
+    assert.equal(getProviderFamily("claude-3-5-sonnet", "openrouter"), "anthropic")
+  })
+
+  it("should detect openai for various combinations", () => {
+    assert.equal(getProviderFamily("gpt-4o", "unknown"), "openai")
+    assert.equal(getProviderFamily("o1-mini", "openrouter"), "openai")
+    assert.equal(getProviderFamily("o3", "together"), "openai")
+    assert.equal(getProviderFamily("some-model", "openai"), "openai")
+  })
+
+  it("should detect deepseek for various combinations", () => {
+    assert.equal(getProviderFamily("deepseek-chat", "siliconflow"), "deepseek")
+    assert.equal(getProviderFamily("deepseek-reasoner", "deepseek"), "deepseek")
+    assert.equal(getProviderFamily("deepseek/deepseek-r1", "openrouter"), "deepseek")
+  })
+
+  it("should detect google for various combinations", () => {
+    assert.equal(getProviderFamily("gemini-2.5-pro", "openrouter"), "google")
+    assert.equal(getProviderFamily("some-model", "google"), "google")
+    assert.equal(getProviderFamily("gemini-2.0-flash", "vertex"), "google")
+  })
+
+  it("should fallback to other for unknown providers/models", () => {
+    assert.equal(getProviderFamily("meta-llama-3-8b", "together"), "other")
+    assert.equal(getProviderFamily("unknown", "unknown"), "other")
+  })
+})
+
+// ============================================================================
+// calculateCost (provider-specific defaults verification)
+// ============================================================================
+
+describe("calculateCost", () => {
+  it("should apply Anthropic defaults correctly (cacheRead = 10%, cacheWrite = 125%)", () => {
+    // claude-sonnet-4 base: input = 3, output = 15.
+    // 1M inputs, 1M outputs, 100K cacheRead, 100K cacheWrite
+    const cost = calculateCost("claude-sonnet-4", "anthropic", 1_000_000, 1_000_000, 100_000, 100_000)
+    
+    // Expected details:
+    // billable input = 1M - 100K = 900K tokens = 0.9 * 3.00 = $2.70
+    // output = 1M tokens = 1.0 * 15.00 = $15.00
+    // cacheRead = 100K tokens = 0.1 * 3.00 * 0.1 = $0.03 (10% discount rate)
+    // cacheWrite = 100K tokens = 0.1 * 3.00 * 1.25 = $0.375 (125% rate)
+    // total = 2.70 + 15.00 + 0.03 + 0.375 = $18.105
+    assert.ok(Math.abs(cost - 18.105) < 0.0001, `expected 18.105, got ${cost}`)
+  })
+
+  it("should apply OpenAI defaults correctly (cacheRead = 50%, cacheWrite = 0%)", () => {
+    // Built-in gpt-4o has input: 2.5, output: 10.
+    // 1M inputs, 1M outputs, 100K cacheRead, 100K cacheWrite
+    const cost = calculateCost("gpt-4o", "openai", 1_000_000, 1_000_000, 100_000, 100_000)
+    
+    // Expected details:
+    // billable input = 1M - 100K = 900K tokens = 0.9 * 2.50 = $2.25
+    // output = 1M tokens = 1.0 * 10.00 = $10.00
+    // cacheRead = 100K tokens = 0.1 * 2.50 * 0.5 = $0.125 (50% discount rate)
+    // cacheWrite = 100K tokens = 0.1 * 2.50 * 0 = $0 (free)
+    // total = 2.25 + 10.00 + 0.125 + 0 = $12.375
+    assert.ok(Math.abs(cost - 12.375) < 0.0001, `expected 12.375, got ${cost}`)
+  })
+
+  it("should apply DeepSeek defaults correctly (cacheRead = 10%, cacheWrite = 0%)", () => {
+    // deepseek-chat has input: 0.28, output: 0.42. cacheRead: 0.028 (explicit in table)
+    const costExplicit = calculateCost("deepseek-chat", "deepseek", 1_000_000, 1_000_000, 100_000, 100_000)
+    
+    // billable input = 900K = 0.9 * 0.28 = $0.252
+    // output = 1M = 1.0 * 0.42 = $0.42
+    // cacheRead = 100K = 0.1 * 0.028 = $0.0028
+    // cacheWrite = 100K = 0.1 * 0 = $0
+    // total = 0.252 + 0.42 + 0.0028 = $0.6748
+    assert.ok(Math.abs(costExplicit - 0.6748) < 0.0001, `expected 0.6748, got ${costExplicit}`)
+    
+    // Verify fallback using non-builtin model under deepseek family:
+    const costFallback = calculateCost("deepseek-custom", "deepseek", 1_000_000, 1_000_000, 100_000, 100_000)
+    
+    // Default base: input = 1, output = 4.
+    // billable input = 900K = 0.9 * 1.00 = $0.90
+    // output = 1M = 1.0 * 4.00 = $4.00
+    // cacheRead = 100K = 0.1 * 1.00 * 0.1 = $0.01 (10% rate fallback)
+    // cacheWrite = 100K = 0.1 * 1.00 * 0 = $0 (free cache write)
+    // total = 0.90 + 4.00 + 0.01 = $4.91
+    assert.ok(Math.abs(costFallback - 4.91) < 0.0001, `expected 4.91, got ${costFallback}`)
+  })
+})
+
