@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.7-rc.0] - 2026-05-23
+
+### Internal
+
+- Dry-run release to validate the new tag-triggered GitHub Actions workflow end-to-end (npm publish with provenance + GitHub Release creation + prerelease handling). No user-facing changes.
+
 ## [1.5.6] - 2026-05-23
 
 ### Fixed
