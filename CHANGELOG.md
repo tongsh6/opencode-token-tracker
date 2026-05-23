@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.4] - 2026-05-24
+
+### Changed
+
+- Trend chart uses Braille characters for 4× resolution boost (2×4 dot grid per character), adaptive chart height, and summary line with peak/avg/delta
+
 ## [1.6.3] - 2026-05-24
 
 ### Fixed
