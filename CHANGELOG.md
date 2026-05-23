@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.4] - 2026-05-23
+
+### Added
+
+- Support lightweight configuration hot-reloading in the plugin dynamically without restarting the OpenCode editor. The configuration modification timestamp (`mtimeMs`) is passively verified during core event cycles, backed by a 2000ms debounce protection during high-frequency chat streaming.
+
 ## [1.5.3] - 2026-05-23
 
 ### Added
@@ -88,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Corrected bin path format in package.json
 
+[1.5.4]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.0...v1.5.1
