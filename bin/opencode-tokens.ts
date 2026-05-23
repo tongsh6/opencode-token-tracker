@@ -2,7 +2,7 @@
 
 import type { ModelPricing, TrackerConfig } from "../lib/shared.js"
 import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "../lib/shared.js"
-import { readFileSync, existsSync, writeFileSync } from "fs"
+import { readFileSync, existsSync, writeFileSync, openSync, readSync, closeSync, statSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
 
@@ -62,23 +62,70 @@ function loadEntries(since?: number): TokenEntry[] {
     return []
   }
 
-  const content = readFileSync(LOG_FILE, "utf-8")
-  const lines = content.trim().split("\n").filter(Boolean)
-
   const entries: TokenEntry[] = []
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line) as TokenEntry
-      if (entry.type !== "tokens") continue
-      if (since && entry._ts < since) continue
-      if (!entry.input && !entry.output) continue
-      entries.push(entry)
-    } catch {
-      // Skip malformed lines
+  const fd = openSync(LOG_FILE, "r")
+  const stat = statSync(LOG_FILE)
+  const fileSize = stat.size
+
+  const CHUNK_SIZE = 64 * 1024 // 64KB chunks
+  const buffer = Buffer.alloc(CHUNK_SIZE)
+
+  let filePos = fileSize
+  let leftover = ""
+  let shouldStop = false
+
+  while (filePos > 0 && !shouldStop) {
+    const readLength = Math.min(CHUNK_SIZE, filePos)
+    filePos -= readLength
+
+    readSync(fd, buffer, 0, readLength, filePos)
+
+    const chunkStr = buffer.toString("utf8", 0, readLength) + leftover
+    const lines = chunkStr.split("\n")
+
+    // The leftmost line could be cut off, save it for the next chunk read to the left
+    leftover = lines[0]
+
+    // Iterate lines in reverse order (from end to start)
+    for (let i = lines.length - 1; i >= 1; i--) {
+      const line = lines[i].trim()
+      if (!line) continue
+
+      try {
+        const entry = JSON.parse(line) as TokenEntry
+        if (entry.type !== "tokens") continue
+
+        // Early break pruning: once we hit a record older than the threshold,
+        // we can safely stop reading earlier history thanks to monotonic time progression in JSONL.
+        if (since && entry._ts < since) {
+          shouldStop = true
+          break
+        }
+
+        if (!entry.input && !entry.output) continue
+        entries.push(entry)
+      } catch {
+        // Skip malformed lines
+      }
     }
   }
 
-  return entries
+  // Include the very first line at the top
+  if (!shouldStop && leftover.trim()) {
+    try {
+      const entry = JSON.parse(leftover.trim()) as TokenEntry
+      if (entry.type === "tokens" && (!since || entry._ts >= since) && (entry.input || entry.output)) {
+        entries.push(entry)
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  closeSync(fd)
+
+  // Re-establish original chronological order
+  return entries.reverse()
 }
 
 function loadConfig(): TrackerConfig {
