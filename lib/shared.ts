@@ -357,10 +357,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isDirectModelPricing(value: ModelPricing | ProviderModelPricingMap): value is ModelPricing {
   return hasFlatPricingStructure(value)
-    && isFiniteNumber(value.input)
-    && isFiniteNumber(value.output)
-    && (value.cacheRead === undefined || isFiniteNumber(value.cacheRead))
-    && (value.cacheWrite === undefined || isFiniteNumber(value.cacheWrite))
 }
 
 function resolveModelConfigEntry(
