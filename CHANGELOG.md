@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] - 2026-05-23
+
+### Fixed
+
+- Wrap `TokenTrackerPlugin` asynchronous bootstrap in a global try-catch to prevent plugin initialization failures from blocking or breaking OpenCode host startup.
+
+## [1.5.1] - 2026-05-23
+
+### Added
+
+- Support provider-specific model pricing overrides in `models` configuration
+- Unit tests covering edge cases for provider pricing resolution and fallback logic
+
+### Fixed
+
+- Tightened validation checks for raw config to handle non-object providers or invalid nested model properties gracefully
+- Improved partial match resolution for provider-specific model pricing configurations
+
 ## [1.5.0] - 2026-02-11
 
 ### Added
@@ -64,6 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Corrected bin path format in package.json
 
+[1.5.2]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.3.1...v1.3.2

@@ -1,6 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import type { ModelPricing, TrackerConfig } from "./lib/shared.js"
-import { BUILTIN_PRICING, DEFAULT_CONFIG, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "./lib/shared.js"
+import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "./lib/shared.js"
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
@@ -44,8 +44,9 @@ function getModelPricing(model: string, provider: string): ModelPricing {
   }
   
   // 2. Check user-defined model pricing
-  if (config.models[model]) {
-    return config.models[model]
+  const configuredPricing = findModelConfigPricing(config.models, model, provider)
+  if (configuredPricing) {
+    return configuredPricing
   }
   
   // 3. Check built-in exact match
@@ -53,22 +54,15 @@ function getModelPricing(model: string, provider: string): ModelPricing {
     return BUILTIN_PRICING[model]
   }
   
-  // 4. Try partial match in user config
+  // 4. Try partial match in built-in pricing
   const modelLower = model.toLowerCase()
-  for (const [key, pricing] of Object.entries(config.models)) {
-    if (modelLower.includes(key.toLowerCase())) {
-      return pricing
-    }
-  }
-  
-  // 5. Try partial match in built-in pricing
   for (const [key, pricing] of Object.entries(BUILTIN_PRICING)) {
     if (key !== "_default" && modelLower.includes(key.toLowerCase())) {
       return pricing
     }
   }
   
-  // 6. Fallback to default
+  // 5. Fallback to default
   return BUILTIN_PRICING["_default"]
 }
 

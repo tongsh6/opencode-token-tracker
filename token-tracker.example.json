@@ -8,7 +8,11 @@
   },
   
   "models": {
-    "my-custom-model": { "input": 1, "output": 2, "cacheRead": 0.1 }
+    "my-custom-model": { "input": 1, "output": 2, "cacheRead": 0.1 },
+    "deepseek/deepseek-v4-flash": {
+      "openrouter": { "input": 0.14, "output": 0.28, "cacheRead": 0.0028 },
+      "siliconflow": { "input": 0.2, "output": 0.4 }
+    }
   },
   
   "toast": {
