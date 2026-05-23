@@ -55,7 +55,15 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: |
+          # Versions like 1.6.0-rc.0 are published under the "next" dist-tag
+          # so that `npm install opencode-token-tracker` (which uses "latest")
+          # never picks up a prerelease.
+          if [[ "${GITHUB_REF_NAME#v}" == *-* ]]; then
+            npm publish --access public --provenance --tag next
+          else
+            npm publish --access public --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -70,4 +78,7 @@ jobs:
 
             **npm:** https://www.npmjs.com/package/opencode-token-tracker/v/${{ github.ref_name }}
             **Diff:** https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.ref_name }}
-          make_latest: true
+          # Tags like v1.6.0-rc.0 contain a "-" and are marked as prereleases,
+          # so they don't become the "latest" release on GitHub/npm.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') == false }}
