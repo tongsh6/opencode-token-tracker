@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.5] - 2026-05-23
+
+### Added
+
+- Support refined provider-specific cache pricing default fallbacks. Introduced `getProviderFamily` to classify provider groups (OpenAI, DeepSeek, Google, Anthropic) and apply exact, realistic default rates (e.g. OpenAI write = free, read = 50%; DeepSeek/Gemini write = free, read = 10%) when not explicitly specified, avoiding cost overestimation.
+
 ## [1.5.4] - 2026-05-23
+
 
 ### Added
 
@@ -94,6 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Corrected bin path format in package.json
 
+[1.5.5]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.1...v1.5.2
