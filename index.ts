@@ -90,7 +90,37 @@ function getModelPricing(model: string, provider: string): ModelPricing {
   return BUILTIN_PRICING["_default"]
 }
 
-function calculateCost(
+type ProviderFamily = "anthropic" | "openai" | "deepseek" | "google" | "other"
+
+export function getProviderFamily(model: string, provider: string): ProviderFamily {
+  const p = provider.toLowerCase()
+  const m = model.toLowerCase()
+  
+  if (p.includes("anthropic") || m.startsWith("claude-")) {
+    return "anthropic"
+  }
+  if (
+    p.includes("openai") ||
+    m.startsWith("gpt-") ||
+    m.startsWith("o1-") ||
+    m.startsWith("o3-") ||
+    m.startsWith("o4-") ||
+    m === "o3" ||
+    m === "o1"
+  ) {
+    return "openai"
+  }
+  if (p.includes("deepseek") || m.includes("deepseek")) {
+    return "deepseek"
+  }
+  if (p.includes("google") || p.includes("vertex") || m.startsWith("gemini-")) {
+    return "google"
+  }
+  
+  return "other"
+}
+
+export function calculateCost(
   model: string,
   provider: string,
   input: number,
@@ -99,17 +129,40 @@ function calculateCost(
   cacheWrite: number = 0
 ): number {
   const pricing = getModelPricing(model, provider)
+  const family = getProviderFamily(model, provider)
+  
+  let defaultCacheReadRate = 0.5 // Default 50% discount (OpenAI style)
+  let defaultCacheWriteRate = 0   // Default free cache writing
+  
+  if (family === "anthropic") {
+    defaultCacheReadRate = 0.1
+    defaultCacheWriteRate = 1.25
+  } else if (family === "deepseek" || family === "google") {
+    defaultCacheReadRate = 0.1
+    defaultCacheWriteRate = 0
+  } else if (family === "openai") {
+    defaultCacheReadRate = 0.5
+    defaultCacheWriteRate = 0
+  } else {
+    // "other" / general default
+    defaultCacheReadRate = 0.5
+    defaultCacheWriteRate = 0
+  }
+  
+  const finalCacheReadPrice = pricing.cacheRead ?? (pricing.input * defaultCacheReadRate)
+  const finalCacheWritePrice = pricing.cacheWrite ?? (pricing.input * defaultCacheWriteRate)
   
   // Billable input = total input - cache read (cached tokens are charged at cache rate)
   const billableInput = Math.max(0, input - cacheRead)
   
   const inputCost = (billableInput / 1_000_000) * pricing.input
   const outputCost = (output / 1_000_000) * pricing.output
-  const cacheReadCost = (cacheRead / 1_000_000) * (pricing.cacheRead ?? pricing.input * 0.1)
-  const cacheWriteCost = (cacheWrite / 1_000_000) * (pricing.cacheWrite ?? pricing.input * 1.25)
+  const cacheReadCost = (cacheRead / 1_000_000) * finalCacheReadPrice
+  const cacheWriteCost = (cacheWrite / 1_000_000) * finalCacheWritePrice
   
   return inputCost + outputCost + cacheReadCost + cacheWriteCost
 }
+
 
 // ============================================================================
 // Session Statistics
