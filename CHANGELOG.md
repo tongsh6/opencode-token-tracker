@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+
+## [1.7.0] - 2026-05-24
+
+### Added
+
+- (#60) Added built-in pricing table metadata (`pricingLastUpdated` & `metadataLastUpdated`) and notes visible via `opencode-tokens pricing`.
+- (#62) Enhanced `opencode-tokens config init / generate` to provide personalised budget suggestions and automatically scan for fallback models and subscription providers.
+- Added repo-only real OpenCode CLI dogfood script for validating the plugin against the local `opencode run` path without relying on mocks or `opencode server`.
+
+### Changed
+
+- (#60 & #62) Decoupled pricing status matching tree into central shared pure resolver helper `resolvePricingStatus`.
+- (#62) Config init emits clean JSON exclusively to `stdout`; config generate writes the config file and keeps `stdout` completely empty; both route guides and recommendations exclusively to `stderr`.
+
+### Fixed
+
+- DeepSeek pricing corrected (input $0.28 → $0.14, output $0.42 → $0.28, cacheRead $0.028 → $0.0028 per 1M tokens) to match current DeepSeek official pricing. Existing entries in tokens.jsonl retain their original cost values; only future entries use the corrected rates.
+- Cost calculation now treats OpenCode `input` tokens as net-new input and charges `cacheRead` separately, matching the token semantics observed in real OpenCode CLI events.
+- Plugin entry no longer exports internal helpers (`calculateCost`, `getProviderFamily`). Resolves OpenCode v1.15.10 legacy plugin loader spuriously calling these helpers as plugin functions and emitting `failed to load plugin opencode-token-tracker` even though hooks were registered successfully.
+
+## [1.6.6] - 2026-05-24
+
+### Fixed
+
+- (#63) Fixed budget warning toast using a pure `evaluateBudgetStatus` selector that correctly prioritises the most severe period.
+
+### Documentation
+
+- (#61) Added "Accuracy & Limitations" / "准确性与限制" sections to English & Chinese READMEs detailing cost estimates and budget warning non-enforcement.
+- (#61) Added disclaimers to CLI `budget` and `--help` command outputs.
+
 ## [1.6.5] - 2026-05-24
 
 ### Added

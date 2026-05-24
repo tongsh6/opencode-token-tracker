@@ -20,12 +20,12 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 
 | 路径 | 用途 |
 | --- | --- |
-| `context/INDEX.md` | context 总入口与导航 |
-| `context/tech/REPO_SNAPSHOT.md` | 当前仓库结构与技术快照 |
-| `context/tech/conventions/typescript.md` | TypeScript 代码风格与约定 |
-| `context/business/INDEX.md` | 业务背景、术语定义与语义口径 |
-| `context/experience/INDEX.md` | 经验库索引 |
-| `context/experience/lessons/` | 复盘与经验沉淀 |
+| [context/INDEX.md](context/INDEX.md) | context 总入口与导航 |
+| [context/tech/REPO_SNAPSHOT.md](context/tech/REPO_SNAPSHOT.md) | 当前仓库结构与技术快照 |
+| [context/tech/conventions/typescript.md](context/tech/conventions/typescript.md) | TypeScript 代码风格与约定 |
+| [context/business/INDEX.md](context/business/INDEX.md) | 业务背景、术语定义与语义口径 |
+| [context/experience/INDEX.md](context/experience/INDEX.md) | 经验库索引 |
+| [context/experience/lessons/](context/experience/lessons/) | 复盘与经验沉淀 |
 
 ## 4) 开发硬约束
 
@@ -34,7 +34,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 - 测试框架：Node.js 内置 `node:test`，验证方式为 `npm test`（含构建 + 测试）
 - `dist/` 为构建产物目录，不手动编辑
 - 除 `@opencode-ai/plugin` 外不引入额外运行时依赖
-- 代码风格细则统一放在 `context/tech/conventions/typescript.md`
+- 代码风格细则统一放在 [context/tech/conventions/typescript.md](context/tech/conventions/typescript.md)
 
 ## 5) 架构与实现要点
 
@@ -42,7 +42,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 
 1. 监听 OpenCode 事件：`message.updated`、`session.idle`
 2. 使用 `messageId-input-output` 去重 token 记录
-3. 定价查找顺序：provider 覆盖 -> 用户 model 配置 -> 内置精确匹配 -> 部分匹配 -> 默认值
+3. 定价查找顺序：provider 覆盖 -> 用户 model 精确匹配 -> 内置精确匹配 -> 内置部分匹配 -> 用户 model 部分匹配 -> 默认值
 4. 持久化到 `~/.config/opencode/logs/token-tracker/tokens.jsonl`（JSONL）
 5. 会话统计保存在内存 `Map<string, SessionStats>`
 6. 通过 `client.tui.showToast()` 输出提示
@@ -55,9 +55,9 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 
 ## 6) 自动行为约定（Agent Runtime）
 
-- 执行任务前优先读取 `context/INDEX.md` 与相关 tech 文档
-- 涉及代码风格判断时，优先依据 `context/tech/conventions/typescript.md`
-- 新增经验/坑位时，补充到 `context/experience/lessons/` 并更新索引
+- 执行任务前优先读取 [context/INDEX.md](context/INDEX.md) 与相关 tech 文档
+- 涉及代码风格判断时，优先依据 [context/tech/conventions/typescript.md](context/tech/conventions/typescript.md)
+- 新增经验/坑位时，补充到 [context/experience/lessons/](context/experience/lessons/) 并更新索引
 - 若 context 信息与代码现状冲突，以代码现状为准，并回写更新 context
 
 ## 7) 常用命令
@@ -72,8 +72,8 @@ npm run build
 # 运行测试（含构建）
 npm test
 
-# 本地联调插件
-npm link
+# 真实本机 OpenCode CLI dogfood
+npm run build && node scripts/real-opencode-cli-smoke.mjs --use-temporary-link --model deepseek/deepseek-chat
 
 # CLI 手动验证
 node dist/bin/opencode-tokens.js

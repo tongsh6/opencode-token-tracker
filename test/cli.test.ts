@@ -1,65 +1,242 @@
-import { describe, it } from "node:test"
+import { describe, it, before, after } from "node:test"
 import { strict as assert } from "node:assert"
-import { execSync } from "child_process"
+import { spawnSync } from "child_process"
 import { fileURLToPath } from "url"
 import { join, dirname } from "path"
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync } from "fs"
+import { tmpdir } from "os"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CLI = join(__dirname, "..", "bin", "opencode-tokens.js")
 
-function run(args: string): string {
-  return execSync(`node ${CLI} ${args}`, { encoding: "utf-8", timeout: 10000 })
+let tmpHome = ""
+
+before(() => {
+  tmpHome = mkdtempSync(join(tmpdir(), "token-tracker-test-"))
+})
+
+after(() => {
+  if (tmpHome && existsSync(tmpHome)) {
+    rmSync(tmpHome, { recursive: true, force: true })
+  }
+})
+
+function run(args: string[]) {
+  return spawnSync("node", [CLI, ...args], {
+    encoding: "utf-8",
+    timeout: 10000,
+    env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome }
+  })
 }
 
 describe("CLI help and stats", () => {
-  it("should show help", () => {
-    const out = run("--help")
-    assert.ok(out.includes("opencode-tokens - Token usage statistics CLI"))
-    assert.ok(out.includes("trend"))
-    assert.ok(out.includes("export"))
-    assert.ok(out.includes("config set"))
+  it("should show help with disclaimer", () => {
+    const res = run(["--help"])
+    assert.equal(res.status, 0)
+    assert.ok(res.stdout.includes("opencode-tokens - Token usage statistics CLI"))
+    assert.ok(res.stdout.includes("trend"))
+    assert.ok(res.stdout.includes("export"))
+    assert.ok(res.stdout.includes("config set"))
+    assert.ok(res.stdout.includes("Costs are estimates from local logs; budgets are warnings, not enforcement."))
   })
 
   it("should show stats by session", () => {
-    const out = run("--by session")
-    assert.ok(out.includes("By Session") || out.includes("No data"))
+    const res = run(["--by", "session"])
+    assert.equal(res.status, 0)
+    assert.ok(res.stdout.includes("By Session") || res.stdout.includes("No data"))
   })
 
-  it("should show budget", () => {
-    const out = run("budget")
-    assert.ok(out.includes("Budget Status"))
+  it("should show budget with disclaimer", () => {
+    // 1. Check with unconfigured budget
+    const resUnconfigured = run(["budget"])
+    assert.equal(resUnconfigured.status, 0)
+    assert.ok(resUnconfigured.stdout.includes("No budget configured."))
+    assert.ok(resUnconfigured.stdout.includes("Costs are estimates from local logs; budgets are warnings, not enforcement."))
+
+    // 2. Check with configured budget
+    run(["config", "generate"])
+    const resConfigured = run(["budget"])
+    assert.equal(resConfigured.status, 0)
+    assert.ok(resConfigured.stdout.includes("Budget Status"))
+    assert.ok(resConfigured.stdout.includes("Daily"))
+    assert.ok(resConfigured.stdout.includes("Costs are estimates from local logs; budgets are warnings, not enforcement."))
   })
 })
 
 describe("CLI config", () => {
   it("should set, get, and unset config value", () => {
-    run("config set toast.duration 5000")
-    const out = run("config get toast.duration")
-    assert.ok(out.includes("5000"))
-    run("config unset toast.duration")
+    run(["config", "set", "toast.duration", "5000"])
+    const getRes = run(["config", "get", "toast.duration"])
+    assert.ok(getRes.stdout.includes("5000"))
+    
+    run(["config", "unset", "toast.duration"])
+    const getUnsetRes = run(["config", "get", "toast.duration"])
+    assert.ok(getUnsetRes.stdout.includes("3000")) // default value
   })
 
   it("should reject unknown config key", () => {
-    const out = run("config get nonexistent.key")
-    assert.ok(out.includes("Unknown key"))
+    const res = run(["config", "get", "nonexistent.key"])
+    assert.ok(res.stdout.includes("Unknown key"))
   })
 })
 
 describe("CLI export", () => {
   it("should export as CSV", () => {
-    const out = run("export --format csv --period today")
-    assert.ok(out.includes("timestamp") || out.includes("No data"))
+    const res = run(["export", "--format", "csv", "--period", "today"])
+    assert.ok(res.stdout.includes("timestamp") || res.stdout.includes("No data"))
   })
 
   it("should export as JSON", () => {
-    const out = run("export --format json --period today")
-    assert.ok(out.startsWith("[") || out.includes("No data"))
+    const res = run(["export", "--format", "json", "--period", "today"])
+    assert.ok(res.stdout.startsWith("[") || res.stdout.includes("No data"))
   })
 })
 
 describe("CLI trend", () => {
   it("should show trend chart", () => {
-    const out = run("trend --days 7")
-    assert.ok(out.includes("┤") || out.includes("(no data"))
+    const res = run(["trend", "--days", "7"])
+    assert.ok(res.stdout.includes("┤") || res.stdout.includes("(no data"))
+  })
+})
+
+describe("CLI config stream separation and suggestions", () => {
+  it("should run config init with clean stdout JSON and stderr guides", () => {
+    const configPath = join(tmpHome, ".config", "opencode", "token-tracker.json")
+    if (existsSync(configPath)) {
+      rmSync(configPath, { force: true })
+    }
+
+    const res = run(["config", "init"])
+    assert.equal(res.status, 0)
+    
+    // Stdout must be 100% clean valid JSON
+    const parsed = JSON.parse(res.stdout.trim())
+    assert.ok(parsed.toast)
+    assert.ok(parsed.budget)
+    assert.equal(parsed.budget.daily, 5) // default limit since no entries exist
+
+    // Stderr must contain the guide text
+    assert.ok(res.stderr.includes("Configuration Guide"))
+    assert.ok(res.stderr.includes("To create this config file"))
+
+    // Side effect: File must NOT be created
+    assert.equal(existsSync(configPath), false)
+  })
+
+  it("should run config generate with empty stdout, stderr guides, and create config with backup", () => {
+    const configPath = join(tmpHome, ".config", "opencode", "token-tracker.json")
+    const backupPath = join(tmpHome, ".config", "opencode", "token-tracker.json.bak")
+    
+    if (existsSync(configPath)) {
+      rmSync(configPath, { force: true })
+    }
+    if (existsSync(backupPath)) {
+      rmSync(backupPath, { force: true })
+    }
+
+    const res = run(["config", "generate"])
+    assert.equal(res.status, 0)
+
+    // Stdout must be completely empty (0 bytes) to prevent shell truncation backup failures (P1)
+    assert.equal(res.stdout.trim(), "")
+
+    // Stderr check
+    assert.ok(res.stderr.includes("Configuration Guide"))
+    assert.ok(res.stderr.includes("Config file created:"))
+
+    // Side effect check: file must exist
+    assert.equal(existsSync(configPath), true)
+    const fileContent = JSON.parse(readFileSync(configPath, "utf-8"))
+    assert.equal(fileContent.toast.enabled, true)
+
+    // Backup Safety Validation:
+    // Write pre-existing mock configuration
+    const preExistingMock = { budget: { daily: 999 } }
+    writeFileSync(configPath, JSON.stringify(preExistingMock, null, 2))
+
+    // Run generate again to overwrite
+    const res2 = run(["config", "generate"])
+    assert.equal(res2.status, 0)
+    assert.equal(res2.stdout.trim(), "")
+
+    // Config must be overwritten
+    const fileContent2 = JSON.parse(readFileSync(configPath, "utf-8"))
+    assert.ok(fileContent2.toast)
+    assert.notDeepEqual(fileContent2, preExistingMock)
+
+    // Backup file must exist and contain the preExistingMock
+    assert.equal(existsSync(backupPath), true)
+    const backupContent = JSON.parse(readFileSync(backupPath, "utf-8"))
+    assert.deepEqual(backupContent, preExistingMock)
+  })
+
+  it("should parse logs and generate dynamic suggestions with proper formulas", () => {
+    const configPath = join(tmpHome, ".config", "opencode", "token-tracker.json")
+    if (existsSync(configPath)) {
+      rmSync(configPath, { force: true })
+    }
+
+    // 1. Create logs directory and fake log file inside sandbox tmpHome
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+
+    // 2. Generate 7 daily log lines with cost = $1.00 each
+    const now = Date.now()
+    let logLines = ""
+    for (let i = 0; i < 7; i++) {
+      const entry = {
+        type: "tokens",
+        _ts: now - i * 24 * 60 * 60 * 1000,
+        input: 1000,
+        output: 1000,
+        cost: 1.0,
+        provider: "free-copilot",
+        model: "fallback-gpt-7"
+      }
+      logLines += JSON.stringify(entry) + "\n"
+    }
+    writeFileSync(logsFile, logLines)
+
+    // 3. Run config init to capture dynamic recommendation budgets
+    const res = run(["config", "init"])
+    assert.equal(res.status, 0)
+
+    // Stdout JSON check: budgets must perfectly align with our exact dynamic formulas (P3)
+    const parsed = JSON.parse(res.stdout.trim())
+    assert.equal(parsed.budget.daily, 1.5)  // avg $1.0 * 1.5
+    assert.equal(parsed.budget.weekly, 9.1) // avg $1.0 * 7 * 1.3
+    assert.equal(parsed.budget.monthly, 36) // avg $1.0 * 30 * 1.2
+
+    // Detected zero-cost provider override in example config (P2)
+    assert.deepEqual(parsed.providers["free-copilot"], { input: 0, output: 0 })
+    // Detected fallback model override in example config (P2)
+    assert.deepEqual(parsed.models["fallback-gpt-7"], { input: 1, output: 4 })
+
+    // Stderr output check: must print dynamic Usage-Aware Suggestions Summary (P2)
+    assert.ok(res.stderr.includes("📢 Usage-Aware Suggestions Summary"))
+    assert.ok(res.stderr.includes("Found 7 historical usage entries"))
+    assert.ok(res.stderr.includes("Calculated 7-day average daily cost: $1.0000"))
+    assert.ok(res.stderr.includes("Daily Limit   : $1.50"))
+    assert.ok(res.stderr.includes("Weekly Limit  : $9.10"))
+    assert.ok(res.stderr.includes("Monthly Limit : $36.00"))
+    assert.ok(res.stderr.includes("Detected zero-cost/subscription providers:"))
+    assert.ok(res.stderr.includes("free-copilot"))
+    assert.ok(res.stderr.includes("Detected unrecognized fallback models:"))
+    assert.ok(res.stderr.includes("fallback-gpt-7"))
+
+    // Clean up fake files
+    rmSync(logsFile, { force: true })
+  })
+})
+
+describe("CLI pricing metadata and notice", () => {
+  it("should display metadata and fallback pricing notice in pricing command", () => {
+    const res = run(["pricing"])
+    assert.equal(res.status, 0)
+    assert.ok(res.stdout.includes("Pricing last updated:"))
+    assert.ok(res.stdout.includes("Metadata last updated:"))
+    assert.ok(res.stdout.includes("Source:"))
+    assert.ok(res.stdout.includes("Fallback Pricing Notice:"))
   })
 })

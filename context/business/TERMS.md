@@ -17,7 +17,7 @@
 
 ## 3) token 字段语义
 
-- `input`：本次请求输入 token 总量
+- `input`：本次请求的 net-new 输入 token；OpenCode 事件中它与 `cacheRead` 分开提供
 - `output`：本次响应输出 token 总量
 - `reasoning`：模型思考 token（若上游提供）
 - `cacheRead`：命中缓存读取的 token
@@ -37,14 +37,16 @@
 定价解析顺序（高 -> 低）：
 
 1. provider 覆盖配置
-2. 用户 model 配置
+2. 用户 model 精确匹配
 3. 内置定价精确匹配
-4. 内置/用户定价部分匹配
-5. 默认回退定价
+4. 内置定价部分匹配
+5. 用户 model 部分匹配
+6. 默认回退定价
 
 重要边界：
 
 - 本插件计算结果不等同于云厂商正式账单
+- 定价 source of truth 以 provider 官网为准；OpenCode reported cost 只作为对照信号
 - 订阅制或打包计费场景可将 provider 价格配置为 0
 
 ## 5) 预算语义

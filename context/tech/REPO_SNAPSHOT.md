@@ -1,6 +1,6 @@
 # REPO SNAPSHOT
 
-更新时间：2026-05-23
+更新时间：2026-05-24
 
 ## 项目定位
 
@@ -25,10 +25,12 @@
 index.ts
 lib/shared.ts
 bin/opencode-tokens.ts
+scripts/real-opencode-cli-smoke.mjs
 test/shared.test.ts
 .github/workflows/ci.yml
 token-tracker.example.json
 CHANGELOG.md
+walkthrough.md
 AGENTS.md
 context/
 ```
@@ -66,7 +68,7 @@ context/
 - 提交规范：Conventional Commits
 - CI：GitHub Actions（Node 18 + 22 矩阵，push/PR 到 main/dev 触发）
 - 发布：合并到 `main` 后按版本打 tag，执行 `npm publish`
-- 当前版本：`1.5.5`（2026-05-23 发布）
+- 当前版本：`1.7.0`
 
 ## 常用命令
 
@@ -74,7 +76,7 @@ context/
 npm install
 npm run build
 npm test
-npm link
+npm run build && node scripts/real-opencode-cli-smoke.mjs
 node dist/bin/opencode-tokens.js
 node dist/bin/opencode-tokens.js today --by model
 node dist/bin/opencode-tokens.js budget

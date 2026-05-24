@@ -26,6 +26,13 @@ export interface ProviderModelPricingMap {
 // - Google: https://cloud.google.com/vertex-ai/generative-ai/pricing
 // ============================================================================
 
+export const BUILTIN_PRICING_META = {
+  pricingLastUpdated: "2026-02-11",
+  metadataLastUpdated: "2026-05-24",
+  source: "Provider official pricing pages",
+  notes: "Manually maintained. Report stale prices: https://github.com/tongsh6/opencode-token-tracker/issues/new",
+} as const
+
 export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   // Anthropic Claude (https://www.anthropic.com/pricing#api)
   // Opus 4.6: $5 input, $25 output (≤200K), cache write $6.25, cache read $0.50
@@ -66,10 +73,10 @@ export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   "o1-mini": { input: 1.1, output: 4.4 },
 
   // DeepSeek (https://api-docs.deepseek.com/quick_start/pricing)
-  // DeepSeek-V3.2: unified pricing for both chat and reasoner
-  // $0.28 input (cache miss), $0.028 input (cache hit), $0.42 output
-  "deepseek-chat": { input: 0.28, output: 0.42, cacheRead: 0.028 },
-  "deepseek-reasoner": { input: 0.28, output: 0.42, cacheRead: 0.028 },
+  // DeepSeek-V4 Flash compatibility pricing for deepseek-chat / deepseek-reasoner.
+  // $0.14 input (cache miss), $0.0028 input (cache hit), $0.28 output
+  "deepseek-chat": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
+  "deepseek-reasoner": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
 
   // Google Gemini (https://cloud.google.com/vertex-ai/generative-ai/pricing)
   // Gemini 3 Pro Preview: $2 input, $12 output (≤200K)
@@ -483,3 +490,210 @@ function validateBudget(raw: unknown, warnings: string[]): BudgetConfig {
 
   return result
 }
+
+// ============================================================================
+// Budget Severity Evaluation
+// ============================================================================
+
+export interface BudgetStatus {
+  period: "daily" | "weekly" | "monthly"
+  spent: number
+  limit: number
+  percentage: number
+  exceeded: boolean
+  warning: boolean
+}
+
+export interface BudgetSpentSnapshot {
+  dailySpent: number
+  weeklySpent: number
+  monthlySpent: number
+}
+
+export function evaluateBudgetStatus(
+  budget: BudgetConfig,
+  spent: BudgetSpentSnapshot,
+  initialized: boolean
+): BudgetStatus | null {
+  if (!initialized) return null
+  if (!budget.daily && !budget.weekly && !budget.monthly) return null
+  const warnAt = budget.warnAt ?? 0.8
+
+  const candidates: BudgetStatus[] = []
+  const evaluate = (period: "daily" | "weekly" | "monthly", limit: number | undefined, spentAmount: number) => {
+    if (!limit) return
+    const percentage = spentAmount / limit
+    candidates.push({
+      period,
+      spent: spentAmount,
+      limit,
+      percentage,
+      exceeded: percentage >= 1,
+      warning: percentage >= warnAt && percentage < 1,
+    })
+  }
+
+  evaluate("daily",   budget.daily,   spent.dailySpent)
+  evaluate("weekly",  budget.weekly,  spent.weeklySpent)
+  evaluate("monthly", budget.monthly, spent.monthlySpent)
+
+  // Severity sort priority: exceeded (2) > warning (1) > ok (0); tie-breaker: percentage desc
+  const severity = (s: BudgetStatus) => s.exceeded ? 2 : s.warning ? 1 : 0
+  candidates.sort((a, b) => severity(b) - severity(a) || b.percentage - a.percentage)
+
+  return candidates[0] ?? null
+}
+
+export function resolvePricingStatus(
+  config: TrackerConfig,
+  model: string,
+  provider: string
+): "provider cfg" | "model cfg" | "built-in" | "default" {
+  // Step 1: config.providers[provider] -> "provider cfg"
+  if (config.providers && config.providers[provider]) {
+    return "provider cfg"
+  }
+
+  // Step 2: Exact-match in config.models (partial=false) -> "model cfg"
+  if (findModelConfigPricing(config.models, model, provider, false)) {
+    return "model cfg"
+  }
+
+  // Step 3: Exact-match in BUILTIN_PRICING -> "built-in"
+  if (BUILTIN_PRICING[model]) {
+    return "built-in"
+  }
+
+  // Step 4: Partial-match in BUILTIN_PRICING (sorted by key length desc) -> "built-in"
+  const modelLower = model.toLowerCase()
+  const sortedBuiltin = Object.keys(BUILTIN_PRICING)
+    .filter(k => k !== "_default")
+    .sort((a, b) => b.length - a.length)
+  for (const key of sortedBuiltin) {
+    if (modelLower.includes(key.toLowerCase())) {
+      return "built-in"
+    }
+  }
+
+  // Step 5: Partial-match in config.models (sorted by key length desc) -> "model cfg"
+  if (findModelConfigPricing(config.models, model, provider, true)) {
+    return "model cfg"
+  }
+
+  // Step 6: Default fallback -> "default"
+  return "default"
+}
+
+export function round2(val: number): number {
+  return Math.round(val * 100) / 100
+}
+
+// ============================================================================
+// Provider Families & Cost Calculation
+// ============================================================================
+
+export type ProviderFamily = "anthropic" | "openai" | "deepseek" | "google" | "other"
+
+export function getProviderFamily(model: string, provider: string): ProviderFamily {
+  const p = provider.toLowerCase()
+  const m = model.toLowerCase()
+  
+  if (p.includes("anthropic") || m.startsWith("claude-")) {
+    return "anthropic"
+  }
+  if (
+    p.includes("openai") ||
+    m.startsWith("gpt-") ||
+    m.startsWith("o1-") ||
+    m.startsWith("o3-") ||
+    m.startsWith("o4-") ||
+    m.startsWith("chatgpt-") ||
+    m === "o3" ||
+    m === "o1"
+  ) {
+    return "openai"
+  }
+  if (p.includes("deepseek") || m.includes("deepseek")) {
+    return "deepseek"
+  }
+  if (p.includes("google") || p.includes("vertex") || m.startsWith("gemini-")) {
+    return "google"
+  }
+  
+  return "other"
+}
+
+function getModelPricing(model: string, provider: string, config?: TrackerConfig): ModelPricing {
+  if (config && config.providers && config.providers[provider]) {
+    return config.providers[provider]
+  }
+  if (config && config.models) {
+    const configuredPricing = findModelConfigPricing(config.models, model, provider, false)
+    if (configuredPricing) {
+      return configuredPricing
+    }
+  }
+  if (BUILTIN_PRICING[model]) {
+    return BUILTIN_PRICING[model]
+  }
+  const modelLower = model.toLowerCase()
+  const sortedKeys = Object.keys(BUILTIN_PRICING)
+    .filter(k => k !== "_default")
+    .sort((a, b) => b.length - a.length)
+  for (const key of sortedKeys) {
+    if (modelLower.includes(key.toLowerCase())) {
+      return BUILTIN_PRICING[key]
+    }
+  }
+  if (config && config.models) {
+    const partialUserPricing = findModelConfigPricing(config.models, model, provider, true)
+    if (partialUserPricing) {
+      return partialUserPricing
+    }
+  }
+  return BUILTIN_PRICING["_default"]
+}
+
+export function calculateCost(
+  model: string,
+  provider: string,
+  input: number,
+  output: number,
+  cacheRead: number = 0,
+  cacheWrite: number = 0,
+  config?: TrackerConfig
+): number {
+  const pricing = getModelPricing(model, provider, config)
+  const family = getProviderFamily(model, provider)
+  
+  let defaultCacheReadRate = 0.5 // Default 50% discount (OpenAI style)
+  let defaultCacheWriteRate = 0   // Default free cache writing
+  
+  if (family === "anthropic") {
+    defaultCacheReadRate = 0.1
+    defaultCacheWriteRate = 1.25
+  } else if (family === "deepseek" || family === "google") {
+    defaultCacheReadRate = 0.1
+    defaultCacheWriteRate = 0
+  } else if (family === "openai") {
+    defaultCacheReadRate = 0.5
+    defaultCacheWriteRate = 0
+  } else {
+    defaultCacheReadRate = 0.5
+    defaultCacheWriteRate = 0
+  }
+  
+  const finalCacheReadPrice = pricing.cacheRead ?? (pricing.input * defaultCacheReadRate)
+  const finalCacheWritePrice = pricing.cacheWrite ?? (pricing.input * defaultCacheWriteRate)
+  
+  // OpenCode exposes net-new input tokens separately from cacheRead tokens.
+  // Charge both fields independently instead of subtracting cacheRead from input.
+  const inputCost = (input / 1_000_000) * pricing.input
+  const outputCost = (output / 1_000_000) * pricing.output
+  const cacheReadCost = (cacheRead / 1_000_000) * finalCacheReadPrice
+  const cacheWriteCost = (cacheWrite / 1_000_000) * finalCacheWritePrice
+  
+  return inputCost + outputCost + cacheReadCost + cacheWriteCost
+}
+
+

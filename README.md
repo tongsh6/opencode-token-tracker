@@ -23,6 +23,14 @@ This project uses the [AI Engineering Framework (AIEF)](https://github.com/tongs
 
 If you are building AI-assisted engineering workflows, we strongly recommend adopting AIEF in your own repositories for clearer context management and more consistent agent outputs.
 
+
+## Accuracy & Limitations
+
+- **Costs are estimates**, computed locally from your token logs and the built-in (or user-configured) pricing table. They may differ from your provider's official invoice — for example, when promotional credits, discounts, or enterprise pricing structures apply.
+- **Budgets are warnings, not enforcement.** This plugin does not block API calls, throttle requests, or interrupt active sessions. It is designed purely as an observability and tracking tool.
+- **Subscription or bundled providers** (such as GitHub Copilot, Cursor, etc.) or free local models should be configured with zero-cost overrides in your configuration file (see [Configuration](#configuration)).
+- **Pricing freshness**: The built-in pricing table is manually maintained. Please run `opencode-tokens models` to inspect which of your used models currently fall back to the default pricing, and configure overrides if necessary.
+
 ## Installation
 
 Add to your OpenCode config file (`~/.config/opencode/opencode.json`):
@@ -37,6 +45,8 @@ Add to your OpenCode config file (`~/.config/opencode/opencode.json`):
 Restart OpenCode and the plugin will be automatically installed.
 
 ## Usage
+
+For an end-to-end setup and verification path, see [walkthrough.md](./walkthrough.md).
 
 ### Toast Notifications
 
@@ -237,8 +247,12 @@ opencode-tokens models
 # Show current config
 opencode-tokens config
 
-# Generate example config based on your usage
+# Print clean example JSON to stdout without writing a file
 opencode-tokens config init
+
+# Write example config to ~/.config/opencode/token-tracker.json
+# Existing config is backed up to token-tracker.json.bak
+opencode-tokens config generate
 ```
 
 Example `models` output:
@@ -254,6 +268,8 @@ This helps you understand:
 - Which models/providers you're using
 - Whether pricing is from built-in table, your config, or default fallback
 - What to add to your config file
+
+`config init` is safe for piping because stdout contains only valid JSON and no file is written. `config generate` is the file-writing path: stdout stays empty, guides and status messages go to stderr, the parent directory is created when needed, and an existing config is backed up before overwrite.
 
 ## Log Files
 
@@ -367,11 +383,14 @@ All prices are in **USD per 1 million tokens**:
 
 Pricing is resolved in this order (first match wins):
 
-1. **Provider-level** - Override all models for a provider
-2. **Provider-specific model config** - Custom pricing for the same model under different providers
-3. **User model config** - Generic custom model pricing in config file
-4. **Built-in pricing** - Default pricing table
-5. **Fallback** - $1/M input, $4/M output
+1. **Provider-level override** - Override all models for a provider
+2. **Exact user model config** - Custom pricing for a specific model or provider-specific model entry
+3. **Built-in exact match** - Exact key in the built-in pricing table
+4. **Built-in partial match** - Longest matching built-in key for variant model names
+5. **User model partial match** - Longest matching user config key
+6. **Fallback** - $1/M input, $4/M output
+
+Exact user config is intentionally checked before built-ins, while broad partial user keys are checked after built-ins so a generic key like `"claude"` does not accidentally override a precise built-in model price.
 
 #### Example: Free providers
 
@@ -437,11 +456,14 @@ npm install
 # Build
 npm run build
 
-# Link for local testing
-npm link
-cd ~/.config/opencode
-npm link opencode-token-tracker
+# Unit and CLI tests
+npm test
+
+# Real local OpenCode CLI dogfood
+node scripts/real-opencode-cli-smoke.mjs --use-temporary-link --model deepseek/deepseek-chat
 ```
+
+The dogfood script is repo-only and is not published as an npm command. It verifies the real local `opencode run` path, including OpenCode's cache package directory, and restores any temporary package links after the run.
 
 ## License
 
