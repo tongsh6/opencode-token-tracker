@@ -12,7 +12,9 @@
     "build": "tsc",
     "test": "tsc && node --test dist/test/*.test.js",
     "prepublishOnly": "npm run build",
-    "release": "node scripts/release.js"
+    "release:check": "node scripts/release.js check",
+    "release:prepare": "node scripts/release.js prepare",
+    "release:tag": "node scripts/release.js tag"
   },
   "keywords": [
     "opencode",
