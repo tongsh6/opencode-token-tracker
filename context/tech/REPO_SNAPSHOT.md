@@ -26,8 +26,10 @@ index.ts
 lib/shared.ts
 bin/opencode-tokens.ts
 scripts/real-opencode-cli-smoke.mjs
+scripts/release.js
 test/shared.test.ts
 .github/workflows/ci.yml
+.github/workflows/release.yml
 token-tracker.example.json
 CHANGELOG.md
 walkthrough.md
@@ -56,6 +58,11 @@ context/
   - CLI 入口：统计、预算、定价相关命令
   - 读取同一份日志文件并执行聚合计算
 
+- `scripts/release.js`
+  - 分段式 release controller：`check`、`prepare`、`tag`
+  - 默认只做本地检查；metadata commit 与 tag push 必须通过独立命令触发
+  - 使用 npm 命令口径，与 CI/release workflow 保持一致
+
 ## 数据与配置
 
 - 日志文件：`~/.config/opencode/logs/token-tracker/tokens.jsonl`
@@ -67,7 +74,7 @@ context/
 - 分支策略：`feature/*` 或 `fix/*` -> PR 到 `dev` -> PR 到 `main`
 - 提交规范：Conventional Commits
 - CI：GitHub Actions（Node 18 + 22 矩阵，push/PR 到 main/dev 触发）
-- 发布：合并到 `main` 后按版本打 tag，执行 `npm publish`
+- 发布：`npm run release:check` -> `npm run release:prepare` -> PR 合并到 `main` -> `npm run release:tag`；tag 触发 GitHub Actions 执行 `npm publish`
 - 当前版本：`1.7.0`
 
 ## 常用命令
@@ -76,6 +83,9 @@ context/
 npm install
 npm run build
 npm test
+npm run release
+npm run release:prepare
+npm run release:tag
 npm run build && node scripts/real-opencode-cli-smoke.mjs
 node dist/bin/opencode-tokens.js
 node dist/bin/opencode-tokens.js today --by model
