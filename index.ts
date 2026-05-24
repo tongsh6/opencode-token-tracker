@@ -1,6 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import type { ModelPricing, TrackerConfig } from "./lib/shared.js"
-import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig } from "./lib/shared.js"
+import type { ModelPricing, TrackerConfig, BudgetStatus, BudgetSpentSnapshot } from "./lib/shared.js"
+import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig, evaluateBudgetStatus, getProviderFamily, calculateCost } from "./lib/shared.js"
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs"
 import { open, type FileHandle } from "fs/promises"
 import { join } from "path"
@@ -58,117 +58,7 @@ function ensureLatestConfig(): void {
   }
 }
 
-// ============================================================================
-// Pricing
-// ============================================================================
 
-function getModelPricing(model: string, provider: string): ModelPricing {
-  // 1. Check provider-level override first (highest priority)
-  if (config.providers[provider]) {
-    return config.providers[provider]
-  }
-  
-  // 2. Check user-defined model pricing (exact match only)
-  const configuredPricing = findModelConfigPricing(config.models, model, provider, false)
-  if (configuredPricing) {
-    return configuredPricing
-  }
-  
-  // 3. Check built-in exact match
-  if (BUILTIN_PRICING[model]) {
-    return BUILTIN_PRICING[model]
-  }
-  
-  // 4. Try partial match in built-in pricing
-  const modelLower = model.toLowerCase()
-  for (const [key, pricing] of Object.entries(BUILTIN_PRICING).sort(([a], [b]) => b.length - a.length)) {
-    if (key !== "_default" && modelLower.includes(key.toLowerCase())) {
-      return pricing
-    }
-  }
-  
-  // 5. Try partial match in user config
-  const partialUserPricing = findModelConfigPricing(config.models, model, provider, true)
-  if (partialUserPricing) {
-    return partialUserPricing
-  }
-  
-  // 6. Fallback to default
-  return BUILTIN_PRICING["_default"]
-}
-
-type ProviderFamily = "anthropic" | "openai" | "deepseek" | "google" | "other"
-
-export function getProviderFamily(model: string, provider: string): ProviderFamily {
-  const p = provider.toLowerCase()
-  const m = model.toLowerCase()
-  
-  if (p.includes("anthropic") || m.startsWith("claude-")) {
-    return "anthropic"
-  }
-  if (
-    p.includes("openai") ||
-    m.startsWith("gpt-") ||
-    m.startsWith("o1-") ||
-    m.startsWith("o3-") ||
-    m.startsWith("o4-") ||
-    m === "o3" ||
-    m === "o1"
-  ) {
-    return "openai"
-  }
-  if (p.includes("deepseek") || m.includes("deepseek")) {
-    return "deepseek"
-  }
-  if (p.includes("google") || p.includes("vertex") || m.startsWith("gemini-")) {
-    return "google"
-  }
-  
-  return "other"
-}
-
-export function calculateCost(
-  model: string,
-  provider: string,
-  input: number,
-  output: number,
-  cacheRead: number = 0,
-  cacheWrite: number = 0
-): number {
-  const pricing = getModelPricing(model, provider)
-  const family = getProviderFamily(model, provider)
-  
-  let defaultCacheReadRate = 0.5 // Default 50% discount (OpenAI style)
-  let defaultCacheWriteRate = 0   // Default free cache writing
-  
-  if (family === "anthropic") {
-    defaultCacheReadRate = 0.1
-    defaultCacheWriteRate = 1.25
-  } else if (family === "deepseek" || family === "google") {
-    defaultCacheReadRate = 0.1
-    defaultCacheWriteRate = 0
-  } else if (family === "openai") {
-    defaultCacheReadRate = 0.5
-    defaultCacheWriteRate = 0
-  } else {
-    // "other" / general default
-    defaultCacheReadRate = 0.5
-    defaultCacheWriteRate = 0
-  }
-  
-  const finalCacheReadPrice = pricing.cacheRead ?? (pricing.input * defaultCacheReadRate)
-  const finalCacheWritePrice = pricing.cacheWrite ?? (pricing.input * defaultCacheWriteRate)
-  
-  // Billable input = total input - cache read (cached tokens are charged at cache rate)
-  const billableInput = Math.max(0, input - cacheRead)
-  
-  const inputCost = (billableInput / 1_000_000) * pricing.input
-  const outputCost = (output / 1_000_000) * pricing.output
-  const cacheReadCost = (cacheRead / 1_000_000) * finalCacheReadPrice
-  const cacheWriteCost = (cacheWrite / 1_000_000) * finalCacheWritePrice
-  
-  return inputCost + outputCost + cacheReadCost + cacheWriteCost
-}
 
 
 // ============================================================================
@@ -242,15 +132,6 @@ function logJson(data: Record<string, unknown>) {
 // ============================================================================
 // Budget Tracking (in-memory accumulator, avoids per-message JSONL reads)
 // ============================================================================
-
-interface BudgetStatus {
-  period: "daily" | "weekly" | "monthly"
-  spent: number
-  limit: number
-  percentage: number
-  exceeded: boolean
-  warning: boolean
-}
 
 interface BudgetTracker {
   dailySpent: number
@@ -489,53 +370,12 @@ function accumulateBudget(cost: number): void {
 }
 
 function checkBudgetStatus(): BudgetStatus | null {
-  const budget = config.budget
-  if (!budget.daily && !budget.weekly && !budget.monthly) {
-    return null
+  const snapshot: BudgetSpentSnapshot = {
+    dailySpent: budgetTracker.dailySpent,
+    weeklySpent: budgetTracker.weeklySpent,
+    monthlySpent: budgetTracker.monthlySpent,
   }
-
-  if (!budgetTracker.initialized) return null
-
-  const warnAt = budget.warnAt ?? 0.8
-
-  // Check in order: daily -> weekly -> monthly (most restrictive first)
-  if (budget.daily) {
-    const percentage = budgetTracker.dailySpent / budget.daily
-    return {
-      period: "daily",
-      spent: budgetTracker.dailySpent,
-      limit: budget.daily,
-      percentage,
-      exceeded: percentage >= 1,
-      warning: percentage >= warnAt && percentage < 1,
-    }
-  }
-
-  if (budget.weekly) {
-    const percentage = budgetTracker.weeklySpent / budget.weekly
-    return {
-      period: "weekly",
-      spent: budgetTracker.weeklySpent,
-      limit: budget.weekly,
-      percentage,
-      exceeded: percentage >= 1,
-      warning: percentage >= warnAt && percentage < 1,
-    }
-  }
-
-  if (budget.monthly) {
-    const percentage = budgetTracker.monthlySpent / budget.monthly
-    return {
-      period: "monthly",
-      spent: budgetTracker.monthlySpent,
-      limit: budget.monthly,
-      percentage,
-      exceeded: percentage >= 1,
-      warning: percentage >= warnAt && percentage < 1,
-    }
-  }
-
-  return null
+  return evaluateBudgetStatus(config.budget, snapshot, budgetTracker.initialized)
 }
 
 function formatBudgetMessage(status: BudgetStatus): string {
@@ -637,7 +477,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
 
             const model = info.model?.modelID ?? info.modelID ?? "unknown"
             const provider = info.model?.providerID ?? info.providerID ?? "unknown"
-            const cost = calculateCost(model, provider, input, output, cacheRead, cacheWrite)
+            const cost = calculateCost(model, provider, input, output, cacheRead, cacheWrite, config)
 
             // Update session stats
             const stats = getOrCreateSessionStats(sessionId)

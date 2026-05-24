@@ -6,7 +6,11 @@
 
 | 路径 | 说明 |
 | --- | --- |
-| `context/business/TERMS.md` | 核心术语与字段语义 |
+| [TERMS.md](TERMS.md) | 核心术语与字段语义 |
+| [issue-57-cli-enhancements-design.md](issue-57-cli-enhancements-design.md) | #57 CLI 增强设计记录 |
+| [issue-60-63-review.md](issue-60-63-review.md) | #60-#63 需求 review 与分批建议 |
+| [issue-60-63-plan-review-v3.md](issue-60-63-plan-review-v3.md) | #60-#63 implementation plan v3 review |
+| [issue-60-63-implementation-plan.md](issue-60-63-implementation-plan.md) | #60-#63 最终实现计划 |
 
 ## 适用场景
 

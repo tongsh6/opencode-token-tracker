@@ -10,8 +10,11 @@ import {
   getStartOfWeek,
   getStartOfMonth,
   validateConfig,
+  evaluateBudgetStatus,
+  resolvePricingStatus,
+  getProviderFamily,
+  calculateCost,
 } from "../lib/shared.js"
-import { getProviderFamily, calculateCost } from "../index.js"
 
 
 // ============================================================================
@@ -575,12 +578,12 @@ describe("calculateCost", () => {
     const cost = calculateCost("claude-sonnet-4", "anthropic", 1_000_000, 1_000_000, 100_000, 100_000)
     
     // Expected details:
-    // billable input = 1M - 100K = 900K tokens = 0.9 * 3.00 = $2.70
+    // input = 1M tokens = 1.0 * 3.00 = $3.00
     // output = 1M tokens = 1.0 * 15.00 = $15.00
     // cacheRead = 100K tokens = 0.1 * 3.00 * 0.1 = $0.03 (10% discount rate)
     // cacheWrite = 100K tokens = 0.1 * 3.00 * 1.25 = $0.375 (125% rate)
-    // total = 2.70 + 15.00 + 0.03 + 0.375 = $18.105
-    assert.ok(Math.abs(cost - 18.105) < 0.0001, `expected 18.105, got ${cost}`)
+    // total = 3.00 + 15.00 + 0.03 + 0.375 = $18.405
+    assert.ok(Math.abs(cost - 18.405) < 0.0001, `expected 18.405, got ${cost}`)
   })
 
   it("should apply OpenAI defaults correctly (cacheRead = 50%, cacheWrite = 0%)", () => {
@@ -589,35 +592,38 @@ describe("calculateCost", () => {
     const cost = calculateCost("gpt-4o", "openai", 1_000_000, 1_000_000, 100_000, 100_000)
     
     // Expected details:
-    // billable input = 1M - 100K = 900K tokens = 0.9 * 2.50 = $2.25
+    // input = 1M tokens = 1.0 * 2.50 = $2.50
     // output = 1M tokens = 1.0 * 10.00 = $10.00
     // cacheRead = 100K tokens = 0.1 * 2.50 * 0.5 = $0.125 (50% discount rate)
     // cacheWrite = 100K tokens = 0.1 * 2.50 * 0 = $0 (free)
-    // total = 2.25 + 10.00 + 0.125 + 0 = $12.375
-    assert.ok(Math.abs(cost - 12.375) < 0.0001, `expected 12.375, got ${cost}`)
+    // total = 2.50 + 10.00 + 0.125 + 0 = $12.625
+    assert.ok(Math.abs(cost - 12.625) < 0.0001, `expected 12.625, got ${cost}`)
   })
 
   it("should apply DeepSeek defaults correctly (cacheRead = 10%, cacheWrite = 0%)", () => {
-    // deepseek-chat has input: 0.28, output: 0.42. cacheRead: 0.028 (explicit in table)
+    // deepseek-chat has input: 0.14, output: 0.28. cacheRead: 0.0028 (explicit in table)
     const costExplicit = calculateCost("deepseek-chat", "deepseek", 1_000_000, 1_000_000, 100_000, 100_000)
     
-    // billable input = 900K = 0.9 * 0.28 = $0.252
-    // output = 1M = 1.0 * 0.42 = $0.42
-    // cacheRead = 100K = 0.1 * 0.028 = $0.0028
+    // input = 1M = 1.0 * 0.14 = $0.14
+    // output = 1M = 1.0 * 0.28 = $0.28
+    // cacheRead = 100K = 0.1 * 0.0028 = $0.00028
     // cacheWrite = 100K = 0.1 * 0 = $0
-    // total = 0.252 + 0.42 + 0.0028 = $0.6748
-    assert.ok(Math.abs(costExplicit - 0.6748) < 0.0001, `expected 0.6748, got ${costExplicit}`)
+    // total = 0.14 + 0.28 + 0.00028 = $0.42028
+    assert.ok(Math.abs(costExplicit - 0.42028) < 0.0001, `expected 0.42028, got ${costExplicit}`)
+
+    const dogfoodCost = calculateCost("deepseek-chat", "deepseek", 41, 1, 16896, 0)
+    assert.ok(Math.abs(dogfoodCost - 0.0000533288) < 0.0000000001, `expected 0.0000533288, got ${dogfoodCost}`)
     
     // Verify fallback using non-builtin model under deepseek family:
     const costFallback = calculateCost("deepseek-custom", "deepseek", 1_000_000, 1_000_000, 100_000, 100_000)
     
     // Default base: input = 1, output = 4.
-    // billable input = 900K = 0.9 * 1.00 = $0.90
+    // input = 1M = 1.0 * 1.00 = $1.00
     // output = 1M = 1.0 * 4.00 = $4.00
     // cacheRead = 100K = 0.1 * 1.00 * 0.1 = $0.01 (10% rate fallback)
     // cacheWrite = 100K = 0.1 * 1.00 * 0 = $0 (free cache write)
-    // total = 0.90 + 4.00 + 0.01 = $4.91
-    assert.ok(Math.abs(costFallback - 4.91) < 0.0001, `expected 4.91, got ${costFallback}`)
+    // total = 1.00 + 4.00 + 0.01 = $5.01
+    assert.ok(Math.abs(costFallback - 5.01) < 0.0001, `expected 5.01, got ${costFallback}`)
   })
 })
 
@@ -659,6 +665,154 @@ describe("calculateCost partial match (longest-key-first)", () => {
     const cost = calculateCost("o1-mini-high", "openai", 1_000_000, 1_000_000)
     // Expected: input 1.1 + output 4.4 = 5.5
     assert.ok(Math.abs(cost - 5.5) < 0.001, `expected 5.5, got ${cost}`)
+  })
+})
+
+// ============================================================================
+// evaluateBudgetStatus
+// ============================================================================
+
+describe("evaluateBudgetStatus", () => {
+  const budget = {
+    daily: 10,
+    weekly: 50,
+    monthly: 200,
+    warnAt: 0.8,
+  }
+
+  it("should return null if uninitialized", () => {
+    const spent = { dailySpent: 5, weeklySpent: 25, monthlySpent: 100 }
+    const res = evaluateBudgetStatus(budget, spent, false)
+    assert.equal(res, null)
+  })
+
+  it("should return null if no periods are configured", () => {
+    const emptyBudget = { warnAt: 0.8 }
+    const spent = { dailySpent: 5, weeklySpent: 25, monthlySpent: 100 }
+    const res = evaluateBudgetStatus(emptyBudget, spent, true)
+    assert.equal(res, null)
+  })
+
+  it("should return weekly warning if weekly is most severe (warning)", () => {
+    // daily: spent 1 (10%) -> ok
+    // weekly: spent 45 (90%) -> warning (90% >= 80% and < 100%)
+    // monthly: spent 100 (50%) -> ok
+    const spent = { dailySpent: 1, weeklySpent: 45, monthlySpent: 100 }
+    const res = evaluateBudgetStatus(budget, spent, true)
+    assert.ok(res)
+    assert.equal(res.period, "weekly")
+    assert.equal(res.spent, 45)
+    assert.equal(res.limit, 50)
+    assert.equal(res.exceeded, false)
+    assert.equal(res.warning, true)
+  })
+
+  it("should return weekly exceeded if weekly is exceeded and daily is warning", () => {
+    // daily: spent 9 (90%) -> warning
+    // weekly: spent 55 (110%) -> exceeded
+    // monthly: spent 100 (50%) -> ok
+    const spent = { dailySpent: 9, weeklySpent: 55, monthlySpent: 100 }
+    const res = evaluateBudgetStatus(budget, spent, true)
+    assert.ok(res)
+    assert.equal(res.period, "weekly")
+    assert.equal(res.spent, 55)
+    assert.equal(res.limit, 50)
+    assert.equal(res.exceeded, true)
+    assert.equal(res.warning, false)
+  })
+
+  it("should resolve tie by percentage desc", () => {
+    // daily: spent 5 (50%) -> ok
+    // weekly: spent 40 (80%) -> warning
+    // monthly: spent 180 (90%) -> warning
+    // Both warning, but monthly (90%) > weekly (80%)
+    const spent = { dailySpent: 5, weeklySpent: 40, monthlySpent: 180 }
+    const res = evaluateBudgetStatus(budget, spent, true)
+    assert.ok(res)
+    assert.equal(res.period, "monthly")
+    assert.equal(res.spent, 180)
+    assert.equal(res.percentage, 0.9)
+  })
+
+  it("should handle single configured period", () => {
+    const singleBudget = { monthly: 100, warnAt: 0.8 }
+    const spent = { dailySpent: 50, weeklySpent: 50, monthlySpent: 90 }
+    const res = evaluateBudgetStatus(singleBudget, spent, true)
+    assert.ok(res)
+    assert.equal(res.period, "monthly")
+    assert.equal(res.spent, 90)
+    assert.equal(res.warning, true)
+  })
+})
+
+// ============================================================================
+// resolvePricingStatus
+// ============================================================================
+
+describe("resolvePricingStatus", () => {
+  const mockConfig = {
+    providers: {
+      "free-provider": { input: 0, output: 0 },
+    },
+    models: {
+      "gpt-4o": { input: 2, output: 8 },
+      "special-model": { input: 3, output: 9 },
+    },
+    toast: { enabled: true, duration: 3000, showOnIdle: true },
+    budget: { warnAt: 0.8 },
+  }
+
+  it("should match Step 1: provider cfg", () => {
+    const status = resolvePricingStatus(mockConfig, "any-model", "free-provider")
+    assert.equal(status, "provider cfg")
+  })
+
+  it("should match Step 2: user model exact match", () => {
+    // claude-opus-4.6 is built-in, but overridden exactly in config
+    const customConfig = {
+      ...mockConfig,
+      models: {
+        "claude-opus-4.6": { input: 1, output: 2 }
+      }
+    }
+    const status = resolvePricingStatus(customConfig, "claude-opus-4.6", "anthropic")
+    assert.equal(status, "model cfg")
+  })
+
+  it("should match Step 3: built-in exact match", () => {
+    const status = resolvePricingStatus(mockConfig, "claude-opus-4.6", "anthropic")
+    assert.equal(status, "built-in")
+  })
+
+  it("should match Step 4: built-in partial match", () => {
+    const status = resolvePricingStatus(mockConfig, "gpt-4o-mini-2025", "openai")
+    assert.equal(status, "built-in")
+  })
+
+  it("should match Step 5: user model partial match", () => {
+    const status = resolvePricingStatus(mockConfig, "special-model-v2", "other")
+    assert.equal(status, "model cfg")
+  })
+
+  it("should match Step 6: default fallback", () => {
+    const status = resolvePricingStatus(mockConfig, "nonexistent-model", "other")
+    assert.equal(status, "default")
+  })
+})
+
+// ============================================================================
+// plugin entry export surface
+// ============================================================================
+
+import * as pluginEntry from "../index.js"
+
+describe("plugin entry export surface", () => {
+  it("only exports TokenTrackerPlugin and default", () => {
+    const keys = Object.keys(pluginEntry).filter(k => k !== "__esModule").sort()
+    assert.deepStrictEqual(keys, ["TokenTrackerPlugin", "default"])
+  })
+  it("default is TokenTrackerPlugin", () => {
+    assert.strictEqual(pluginEntry.default, pluginEntry.TokenTrackerPlugin)
   })
 })
 

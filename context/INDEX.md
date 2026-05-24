@@ -6,15 +6,17 @@
 
 | 路径 | 说明 |
 | --- | --- |
-| `context/tech/REPO_SNAPSHOT.md` | 仓库结构、技术栈、模块边界、常用命令快照 |
-| `context/tech/conventions/typescript.md` | TypeScript 风格与实现约定 |
-| `context/business/INDEX.md` | 业务目标、核心术语、语义口径入口 |
-| `context/experience/INDEX.md` | 经验库入口与索引 |
-| `context/experience/lessons/` | 复盘与经验条目 |
+| [../walkthrough.md](../walkthrough.md) | 从安装、真实请求、统计、配置到 dogfood 的端到端使用路径 |
+| [tech/REPO_SNAPSHOT.md](tech/REPO_SNAPSHOT.md) | 仓库结构、技术栈、模块边界、常用命令快照 |
+| [tech/conventions/typescript.md](tech/conventions/typescript.md) | TypeScript 风格与实现约定 |
+| [tech/real-opencode-cli-dogfood.md](tech/real-opencode-cli-dogfood.md) | 基于本机真实 OpenCode CLI 的插件 dogfood 验收机制 |
+| [business/INDEX.md](business/INDEX.md) | 业务目标、核心术语、语义口径入口 |
+| [experience/INDEX.md](experience/INDEX.md) | 经验库入口与索引 |
+| [experience/lessons/](experience/lessons/) | 复盘与经验条目 |
 
 ## 使用建议
 
-- 开始任务前先读 `context/tech/REPO_SNAPSHOT.md`
-- 代码实现或评审时同步参考 `context/tech/conventions/typescript.md`
-- 涉及产品语义、预算口径、术语解释时优先参考 `context/business/INDEX.md`
-- 新的经验教训优先记录到 `context/experience/lessons/`，并更新索引
+- 开始任务前先读 [tech/REPO_SNAPSHOT.md](tech/REPO_SNAPSHOT.md)
+- 代码实现或评审时同步参考 [tech/conventions/typescript.md](tech/conventions/typescript.md)
+- 涉及产品语义、预算口径、术语解释时优先参考 [business/INDEX.md](business/INDEX.md)
+- 新的经验教训优先记录到 [experience/lessons/](experience/lessons/)，并更新索引

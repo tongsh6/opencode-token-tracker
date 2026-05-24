@@ -23,6 +23,14 @@
 
 如果你在构建 AI-assisted engineering 工作流，推荐在你的仓库中采用 AIEF，以获得更清晰的上下文管理与更稳定的 agent 输出。
 
+
+## 准确性与限制
+
+- **成本均为估算值**，由本地 Token 日志及内置（或用户配置）的定价表计算得出。这可能与您的 Provider 官方账单存在差异 —— 例如，当您使用促销额度、企业折扣或特定定价优惠时。
+- **预算提醒仅为警告，非强制阻断**。本插件不会拦截 API 调用、节流请求或中断您的会话。其设计初衷纯粹是为了可观测性与用量追踪。
+- **订阅制或打包服务商**（如 GitHub Copilot、Cursor 等）或免费的本地模型，应在您的配置文件中将其价格覆写为 0（参见 [配置说明](#配置说明)）。
+- **定价数据时效性**：内置的定价表为手动维护。请运行 `opencode-tokens models` 来检查您当前使用的哪些模型退化（fallback）到了默认定价，并在需要时手动配置覆写。
+
 ## 安装
 
 在 OpenCode 配置文件 `~/.config/opencode/opencode.json` 中添加插件：
@@ -37,6 +45,8 @@
 重启 OpenCode 后会自动安装插件。
 
 ## 使用
+
+端到端安装、验证与 dogfood 路径见 [walkthrough.md](./walkthrough.md)。
 
 ### Toast 提示
 
@@ -152,6 +162,81 @@ opencode-tokens --by daily
   gpt-5.2               86.9K     $0.0000      18
 ```
 
+`--by` 可选：
+- `model`：按模型分组
+- `agent`：按 agent 分组
+- `provider`：按 provider 分组
+- `daily`：按天分组
+- `session`：按 session ID 分组
+- `all`：显示全部分组
+
+### 趋势图
+
+查看每日 token、成本或消息数趋势：
+
+```bash
+# 30 天成本趋势（默认）
+opencode-tokens trend
+
+# 7 天 token 趋势
+opencode-tokens trend --days 7 --metric tokens
+
+# 更紧凑的图表
+opencode-tokens trend --width 40
+```
+
+可选参数：
+- `--days N`：统计天数，默认 30
+- `--metric`：`cost`、`tokens` 或 `messages`，默认 `cost`
+- `--width W`：图表宽度，默认 60
+
+### 数据导出
+
+导出 JSONL 聚合后的用量数据：
+
+```bash
+# 导出全部数据为 CSV
+opencode-tokens export
+
+# 导出本月数据为 JSON
+opencode-tokens export --format json --period month
+
+# 写入文件
+opencode-tokens export --format csv --output usage.csv
+```
+
+可选参数：
+- `--format`：`csv` 或 `json`，默认 `csv`
+- `--period`：`today`、`week`、`month`、`all`，默认 `all`
+- `--output FILE`：写入文件，而不是 stdout
+
+### 配置管理
+
+可直接通过 CLI 管理预算与 Toast 配置：
+
+```bash
+# 查看当前配置
+opencode-tokens config
+
+# 设置每日预算为 $10
+opencode-tokens config set budget.daily 10
+
+# 关闭 Toast
+opencode-tokens config set toast.enabled false
+
+# 查看某个值
+opencode-tokens config get budget.warnAt
+
+# 恢复默认
+opencode-tokens config unset budget.daily
+```
+
+可设置字段：
+- `budget.daily`、`budget.weekly`、`budget.monthly`、`budget.warnAt`
+- `toast.enabled`、`toast.duration`、`toast.showOnIdle`
+
+配置变更会自动备份到 `token-tracker.json.bak`。
+
 ### 定价与配置命令
 
 ```bash
@@ -167,8 +252,12 @@ opencode-tokens models
 # 查看当前配置
 opencode-tokens config
 
-# 基于当前使用情况生成示例配置
+# 输出干净 JSON 到 stdout，不写文件
 opencode-tokens config init
+
+# 写入 ~/.config/opencode/token-tracker.json
+# 已有配置会备份到 token-tracker.json.bak
+opencode-tokens config generate
 ```
 
 `models` 示例输出：
@@ -185,6 +274,8 @@ opencode-tokens config init
 - 当前使用了哪些模型和 provider
 - 定价来源是内置表、用户配置还是默认回退
 - 需要在配置文件中补充哪些模型定价
+
+`config init` 适合管道重定向，因为 stdout 只包含合法 JSON，且不会写文件。`config generate` 是写文件路径：stdout 保持为空，说明和状态信息输出到 stderr；父目录不存在时会自动创建，覆盖已有配置前会先备份。
 
 ## 日志文件
 
@@ -285,10 +376,13 @@ token 记录保存在：
 定价解析顺序（命中即止）：
 
 1. **Provider 覆盖** — 为某个 provider 的所有模型统一设置
-2. **按 provider 的 model 配置** — 同一模型在不同 provider 下使用不同定价
-3. **用户 model 配置** — 为特定模型自定义通用定价
-4. **内置定价** — 默认定价表
-5. **默认回退** — $1/M input，$4/M output
+2. **用户 model 精确匹配** — 为特定模型或 provider-specific model entry 自定义定价
+3. **内置定价精确匹配** — 命中内置定价表中的精确 key
+4. **内置定价部分匹配** — 对变体模型名使用最长的内置 key 匹配
+5. **用户 model 部分匹配** — 使用最长的用户配置 key 匹配
+6. **默认回退** — $1/M input，$4/M output
+
+精确用户配置会优先于内置定价；但宽泛的用户部分匹配会排在内置匹配之后，避免 `"claude"` 这类泛 key 意外覆盖精确的内置模型价格。
 
 #### 示例：免费 provider
 
@@ -368,11 +462,14 @@ npm install
 # 构建
 npm run build
 
-# 本地联调
-npm link
-cd ~/.config/opencode
-npm link opencode-token-tracker
+# 单元与 CLI 测试
+npm test
+
+# 真实本机 OpenCode CLI dogfood
+node scripts/real-opencode-cli-smoke.mjs --use-temporary-link --model deepseek/deepseek-chat
 ```
+
+dogfood 脚本只作为仓库内开发工具，不作为 npm 包命令发布。它验证真实本机 `opencode run` 路径，包括 OpenCode 的 cache package 目录；运行结束后会恢复临时 package link。
 
 ## License
 

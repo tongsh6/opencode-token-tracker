@@ -4,7 +4,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { TrackerConfig } from "../lib/shared.js"
-import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfMonth, getStartOfWeek, validateConfig } from "../lib/shared.js"
+import { BUILTIN_PRICING, DEFAULT_CONFIG, formatCost, formatTokens, getStartOfDay, getStartOfMonth, getStartOfWeek, validateConfig, BUILTIN_PRICING_META, resolvePricingStatus, round2 } from "../lib/shared.js"
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
@@ -415,8 +415,11 @@ function cmdPricing() {
   const config = loadConfig()
   
   console.log(`
-  Built-in Pricing Table (USD per 1M tokens) - Updated 2026-02-11
+  Built-in Pricing Table (USD per 1M tokens)
   ══════════════════════════════════════════════════════════════════
+  Pricing last updated:  ${BUILTIN_PRICING_META.pricingLastUpdated}
+  Metadata last updated: ${BUILTIN_PRICING_META.metadataLastUpdated}
+  Source:                ${BUILTIN_PRICING_META.source}
 `)
   
   // Group by provider
@@ -455,6 +458,13 @@ function cmdPricing() {
   if (Object.keys(config.models || {}).length > 0) {
     console.log(`  * = overridden in config`)
   }
+
+  console.log(`  Fallback Pricing Notice:`)
+  console.log(`    When a model is not matched in the built-in pricing table or user configuration,`)
+  console.log(`    it falls back to the default rate ($1.0 / $4.0 per 1M tokens).`)
+  console.log(`    You can easily override it in your configuration.`)
+  console.log(`    ${BUILTIN_PRICING_META.notes}`)
+  console.log()
 }
 
 function cmdModels() {
@@ -503,29 +513,7 @@ function cmdModels() {
   console.log(`  ${"-".repeat(modelWidth)}  ${"-".repeat(providerWidth)}  ${"-".repeat(countWidth)}  ${"-".repeat(statusWidth)}`)
   
   for (const { model, provider, count } of sorted) {
-    let status: string
-
-    // Mirror the runtime pricing resolution order (getModelPricing in index.ts)
-    if (config.providers?.[provider]) {
-      status = "provider cfg"
-    } else if (findModelConfigPricing(config.models, model, provider, false)) {
-      status = "model cfg"
-    } else if (BUILTIN_PRICING[model]) {
-      status = "built-in"
-    } else {
-      const modelLower = model.toLowerCase()
-      const hasBuiltinPartial = Object.keys(BUILTIN_PRICING).some(
-        k => k !== "_default" && modelLower.includes(k.toLowerCase())
-      )
-      if (hasBuiltinPartial) {
-        status = "built-in"
-      } else if (findModelConfigPricing(config.models, model, provider, true)) {
-        status = "model cfg"
-      } else {
-        status = "default"
-      }
-    }
-    
+    const status = resolvePricingStatus(config, model, provider)
     console.log(`  ${padRight(model, modelWidth)}  ${padRight(provider, providerWidth)}  ${padLeft(count.toString(), countWidth)}  ${padRight(status, statusWidth)}`)
   }
   
@@ -544,22 +532,28 @@ function cmdConfig(positional: string[]) {
   const entries = loadEntries()
   
   if (action === "init" || action === "generate") {
-    // Get unique providers from logs
+    // Get unique providers and model+provider combinations from logs
     const providers = new Set<string>()
-    const models = new Set<string>()
+    const modelProviders = new Set<string>()
     
     for (const e of entries) {
       if (e.provider) providers.add(e.provider)
-      if (e.model) models.add(e.model)
+      const model = e.model ?? "unknown"
+      const provider = e.provider ?? "unknown"
+      modelProviders.add(`${model}|${provider}`)
     }
     
-    // Find providers/models without built-in pricing
-    const unknownModels = Array.from(models).filter(m => {
-      if (BUILTIN_PRICING[m]) return false
-      const hasMatch = Object.keys(BUILTIN_PRICING).some(k => k !== "_default" && m.toLowerCase().includes(k.toLowerCase()))
-      return !hasMatch
-    })
-    
+    // Estimate daily avg from last 7 days
+    const now = Date.now()
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000
+    const recentEntries = entries.filter(e => e._ts >= sevenDaysAgo)
+    const totalSpent = recentEntries.reduce((sum, e) => sum + (e.cost ?? 0), 0)
+    const dailyAvg = totalSpent / 7
+
+    const dailyLimit = dailyAvg > 0 ? Math.max(0.5, round2(dailyAvg * 1.5)) : 5
+    const weeklyLimit = dailyAvg > 0 ? Math.max(0.5, round2(dailyAvg * 7 * 1.3)) : 25
+    const monthlyLimit = dailyAvg > 0 ? Math.max(0.5, round2(dailyAvg * 30 * 1.2)) : 100
+
     const exampleConfig: TrackerConfig = {
       providers: {},
       models: {},
@@ -569,28 +563,80 @@ function cmdConfig(positional: string[]) {
         showOnIdle: true,
       },
       budget: {
-        daily: 5,
-        weekly: 25,
-        monthly: 100,
+        daily: dailyLimit,
+        weekly: weeklyLimit,
+        monthly: monthlyLimit,
         warnAt: 0.8,
       },
     }
     
-    // Add providers as comments/examples
+    const suggestedProviders: string[] = []
+    // Add providers as comments/examples (Common free providers)
     for (const provider of providers) {
-      // Common free providers
-      if (provider.includes("copilot") || provider.includes("cursor") || provider.includes("free")) {
+      const pLower = provider.toLowerCase()
+      if (pLower.includes("copilot") || pLower.includes("cursor") || pLower.includes("free")) {
         exampleConfig.providers[provider] = { input: 0, output: 0 }
+        suggestedProviders.push(provider)
       }
     }
     
-    // Add unknown models
-    for (const model of unknownModels) {
-      exampleConfig.models[model] = { input: 1, output: 4 }
+    const suggestedModels: string[] = []
+    // Add unknown/fallback models where status is "default"
+    for (const mp of modelProviders) {
+      const [model, provider] = mp.split("|")
+      if (model === "unknown" || provider === "unknown") continue
+      const status = resolvePricingStatus(config, model, provider)
+      if (status === "default") {
+        exampleConfig.models[model] = { input: 1, output: 4 }
+        suggestedModels.push(`${model} (${provider})`)
+      }
     }
     
-    // Print explanation first
-    console.log(`
+    // Construct Dynamic Usage-Aware Suggestions Summary
+    let suggestionsSummary = `
+  📢 Usage-Aware Suggestions Summary
+  ══════════════════════════════════════════════════════════════════
+  - Analyzed timeframe: Last 7 days
+  - Found ${entries.length} historical usage entries in total.
+  - Calculated 7-day average daily cost: $${round2(dailyAvg).toFixed(4)}
+`
+
+    if (dailyAvg > 0) {
+      suggestionsSummary += `
+  Recommended Budget Limits (derived from daily avg $${round2(dailyAvg).toFixed(4)}):
+    - Daily Limit   : $${dailyLimit.toFixed(2)} (Avg * 1.5 buffer, clamped min $0.50)
+    - Weekly Limit  : $${weeklyLimit.toFixed(2)} (Avg * 7 * 1.3 buffer, clamped min $0.50)
+    - Monthly Limit : $${monthlyLimit.toFixed(2)} (Avg * 30 * 1.2 buffer, clamped min $0.50)
+`
+    } else {
+      suggestionsSummary += `
+  No active usage logs detected in the last 7 days.
+  - Applying fallback default budgets: Daily $5.00, Weekly $25.00, Monthly $100.00.
+`
+    }
+
+    if (suggestedProviders.length > 0) {
+      suggestionsSummary += `
+  Detected zero-cost/subscription providers:
+`
+      for (const p of suggestedProviders) {
+        suggestionsSummary += `    • ${p} (automatically pre-configured to $0.00)\n`
+      }
+    }
+
+    if (suggestedModels.length > 0) {
+      suggestionsSummary += `
+  Detected unrecognized fallback models:
+`
+      for (const m of suggestedModels) {
+        suggestionsSummary += `    • ${m} (automatically pre-configured with fallback $1/$4 rate)\n`
+      }
+    }
+    
+    suggestionsSummary += `  ────────────────────────────────────────────────────────────────\n`
+
+    // Print explanation first to stderr
+    const guideText = `
   Configuration Guide
   ══════════════════════════════════════════════════════════════════
 
@@ -631,22 +677,25 @@ function cmdConfig(positional: string[]) {
 
   ────────────────────────────────────────────────────────────────
   Example config based on your usage:
-`)
-    console.log(JSON.stringify(exampleConfig, null, 2))
+`
+    process.stderr.write(suggestionsSummary + "\n")
+    process.stderr.write(guideText + "\n")
     
-    if (action === "generate") {
-      const json = JSON.stringify(exampleConfig, null, 2)
-      writeFileSync(CONFIG_FILE, json)
-      console.log(`
-  Config file created: ${CONFIG_FILE}
-`)
-    } else {
-      console.log(`
+    if (action === "init") {
+      // Print clean config to stdout ONLY on init
+      process.stdout.write(JSON.stringify(exampleConfig, null, 2) + "\n")
+      process.stderr.write(`
   To create this config file, run:
     opencode-tokens config generate
   
   Or manually create: ${CONFIG_FILE}
-`)
+\n`)
+    } else if (action === "generate") {
+      // Generate has completely empty stdout! Writes to config file, alerts to stderr
+      saveConfig(exampleConfig)
+      process.stderr.write(`
+  Config file created: ${CONFIG_FILE}
+\n`)
     }
     return
   }
@@ -798,7 +847,7 @@ function loadOrInitConfig(): Record<string, unknown> {
   return {}
 }
 
-function saveConfig(raw: Record<string, unknown>): void {
+function saveConfig(raw: TrackerConfig | Record<string, unknown>): void {
   const dir = join(homedir(), ".config", "opencode")
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
@@ -897,6 +946,8 @@ function cmdBudget() {
   }
 
   Run: opencode-tokens config init  for more details.
+
+  Costs are estimates from local logs; budgets are warnings, not enforcement.
 `)
     return
   }
@@ -975,6 +1026,7 @@ function cmdBudget() {
   }
   
   console.log(`  Legend: 🟢 OK  🟡 Warning (>${Math.round(warnAt * 100)}%)  🔴 Exceeded`)
+  console.log(`  Costs are estimates from local logs; budgets are warnings, not enforcement.`)
   console.log()
 }
 
@@ -1032,6 +1084,8 @@ function cmdHelp() {
     opencode-tokens export --format csv   # Export all data as CSV
     opencode-tokens config set budget.daily 10  # Set daily budget to $10
     opencode-tokens config get toast.enabled   # Check if toast is enabled
+
+  Costs are estimates from local logs; budgets are warnings, not enforcement.
 `)
 }
 
