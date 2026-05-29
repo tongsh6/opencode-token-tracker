@@ -4,6 +4,8 @@
 
 ## 1. 安装插件
 
+### 1.1 OpenCode 插件
+
 在 OpenCode 配置文件 `~/.config/opencode/opencode.json` 中加入插件名：
 
 ```json
@@ -14,6 +16,33 @@
 ```
 
 重启 OpenCode 后，OpenCode 会自动安装并加载插件。
+
+这一步只负责 OpenCode 插件运行时，不会把 `opencode-tokens` CLI 命令加入
+shell `PATH`。
+
+### 1.2 CLI 命令
+
+如果只是偶尔查看统计，可以不做持久安装：
+
+```bash
+npx -y --package opencode-token-tracker opencode-tokens today
+```
+
+也可以使用显式 npm exec 写法：
+
+```bash
+npm exec --yes --package opencode-token-tracker -- opencode-tokens today
+```
+
+如果希望直接执行 `opencode-tokens today`，需要让 npm 建立全局 bin 链接：
+
+```bash
+npm install -g opencode-token-tracker
+opencode-tokens today
+```
+
+因此，如果只配置了 OpenCode 插件却看到 `opencode-tokens: command not found`，
+应先按本节安装或运行 CLI。
 
 ## 2. 产生一条真实用量记录
 
