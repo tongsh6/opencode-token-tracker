@@ -400,9 +400,22 @@ function printDailyBreakdown(entries: TokenEntry[]) {
 
 const STATS_BREAKDOWNS = ["model", "agent", "provider", "day", "daily", "session", "all"] as const
 type StatsBreakdown = typeof STATS_BREAKDOWNS[number]
+const STATS_PERIODS = ["today", "week", "month", "all"] as const
+type StatsPeriod = typeof STATS_PERIODS[number]
+
+const TOP_LEVEL_COMMANDS = ["budget", "doctor", "pricing", "models", "config", "export", "trend"] as const
+type TopLevelCommand = typeof TOP_LEVEL_COMMANDS[number]
 
 function isStatsBreakdown(value: string): value is StatsBreakdown {
   return STATS_BREAKDOWNS.includes(value as StatsBreakdown)
+}
+
+function isStatsPeriod(value: string): value is StatsPeriod {
+  return STATS_PERIODS.includes(value as StatsPeriod)
+}
+
+function isTopLevelCommand(value: string): value is TopLevelCommand {
+  return TOP_LEVEL_COMMANDS.includes(value as TopLevelCommand)
 }
 
 function getStatsBreakdown(flags: Map<string, string | boolean>): StatsBreakdown | undefined {
@@ -429,7 +442,7 @@ function getStatsBreakdown(flags: Map<string, string | boolean>): StatsBreakdown
   return breakdown
 }
 
-function cmdStats(period: string, breakdown?: StatsBreakdown) {
+function cmdStats(period: StatsPeriod, breakdown?: StatsBreakdown) {
   const now = new Date()
   let since: number | undefined
   let title: string
@@ -1798,7 +1811,7 @@ function main() {
 
   const { command } = parsed
 
-  switch (command) {
+  if (isTopLevelCommand(command)) switch (command) {
     case "budget":
       cmdBudget()
       return
@@ -1823,14 +1836,21 @@ function main() {
   }
 
   // Default: stats
-  let period = "all"
+  let period: StatsPeriod = "all"
   const breakdown = getStatsBreakdown(parsed.flags)
   if (process.exitCode) return
 
-  for (const p of ["today", "week", "month", "all"]) {
-    if (parsed.positional.includes(p)) {
-      period = p
-      break
+  if (command) {
+    if (!isStatsPeriod(command)) {
+      failCli(`Unknown command or stats period: ${command}`, "Usage: opencode-tokens [today|week|month|all] [--by model|agent|provider|daily|session|all]")
+      return
+    }
+    period = command
+
+    const extraArgs = parsed.positional.slice(1)
+    if (extraArgs.length > 0) {
+      failCli(`Unexpected argument for stats command: ${extraArgs[0]}`, "Usage: opencode-tokens [today|week|month|all] [--by model|agent|provider|daily|session|all]")
+      return
     }
   }
 
