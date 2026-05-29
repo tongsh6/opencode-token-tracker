@@ -1416,26 +1416,60 @@ interface TrendPoint {
   messages: number
 }
 
+const TREND_METRICS = ["cost", "tokens", "messages"] as const
+type TrendMetric = typeof TREND_METRICS[number]
+
 interface ChartPoint {
   x: number
   y: number
 }
 
-function getTrendValue(point: TrendPoint, metric: string): number {
+function isTrendMetric(metric: string): metric is TrendMetric {
+  return TREND_METRICS.includes(metric as TrendMetric)
+}
+
+function getTrendValue(point: TrendPoint, metric: TrendMetric): number {
   return metric === "tokens" ? point.tokens : metric === "messages" ? point.messages : point.cost
 }
 
-function formatTrendValue(value: number, metric: string): string {
+function formatTrendValue(value: number, metric: TrendMetric): string {
   return metric === "tokens" ? formatTokens(value) : metric === "messages" ? String(Math.round(value)) : formatCost(value)
 }
 
-function formatSignedTrendValue(value: number, metric: string): string {
+function formatSignedTrendValue(value: number, metric: TrendMetric): string {
   const sign = value > 0 ? "+" : value < 0 ? "-" : ""
   return `${sign}${formatTrendValue(Math.abs(value), metric)}`
 }
 
-function metricLabel(metric: string): string {
+function metricLabel(metric: TrendMetric): string {
   return metric === "tokens" ? "Token Trend" : metric === "messages" ? "Message Trend" : "Cost Trend"
+}
+
+function parsePositiveIntegerOption(
+  flags: Map<string, string | boolean>,
+  name: string,
+  defaultValue: number,
+  usage: string,
+): number | undefined {
+  const value = flagValue(flags, name)
+  if (flags.has(name) && !value) {
+    failCli(`Missing value for --${name}`, usage)
+    return undefined
+  }
+  if (!value) return defaultValue
+
+  if (!/^\d+$/.test(value)) {
+    failCli(`Invalid value for --${name}: ${value}`, usage)
+    return undefined
+  }
+
+  const parsed = Number.parseInt(value, 10)
+  if (parsed <= 0) {
+    failCli(`Invalid value for --${name}: ${value}`, usage)
+    return undefined
+  }
+
+  return parsed
 }
 
 function buildLineRows(points: ChartPoint[], width: number, height: number): string[][] {
@@ -1560,9 +1594,22 @@ function buildTrendXAxis(points: Array<[number, TrendPoint]>, chartPoints: Chart
 }
 
 function cmdTrend(flags: Map<string, string | boolean>) {
-  const days = parseInt(String(flagValue(flags, "days") ?? "30"), 10)
-  const metric = flagValue(flags, "metric") ?? "cost"
-  const width = parseInt(String(flagValue(flags, "width") ?? "60"), 10)
+  const days = parsePositiveIntegerOption(flags, "days", 30, "Usage: opencode-tokens trend --days <positive-integer>")
+  if (days === undefined) return
+
+  const metricValue = flagValue(flags, "metric")
+  if (flags.has("metric") && !metricValue) {
+    failCli("Missing value for --metric", "Usage: opencode-tokens trend --metric cost|tokens|messages")
+    return
+  }
+  const metric = metricValue ?? "cost"
+  if (!isTrendMetric(metric)) {
+    failCli(`Unsupported trend metric: ${metric}`, "Allowed metrics: cost, tokens, messages")
+    return
+  }
+
+  const width = parsePositiveIntegerOption(flags, "width", 60, "Usage: opencode-tokens trend --width <positive-integer>")
+  if (width === undefined) return
 
   const since = getStartOfDay(new Date(Date.now() - days * 86400000))
   const entries = loadEntries(since)

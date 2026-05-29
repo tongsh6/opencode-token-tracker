@@ -137,7 +137,31 @@ describe("CLI export", () => {
 describe("CLI trend", () => {
   it("should show trend chart", () => {
     const res = run(["trend", "--days", "7"])
+    assert.equal(res.status, 0)
     assert.ok(res.stdout.includes("┤") || res.stdout.includes("(no data"))
+  })
+
+  it("should reject invalid trend options", () => {
+    const invalidMetric = run(["trend", "--metric", "bananas"])
+    assert.equal(invalidMetric.status, 1)
+    assert.ok(invalidMetric.stderr.includes("Unsupported trend metric: bananas"))
+    assert.ok(invalidMetric.stderr.includes("Allowed metrics: cost, tokens, messages"))
+
+    const invalidDays = run(["trend", "--days", "abc"])
+    assert.equal(invalidDays.status, 1)
+    assert.ok(invalidDays.stderr.includes("Invalid value for --days: abc"))
+
+    const zeroDays = run(["trend", "--days", "0"])
+    assert.equal(zeroDays.status, 1)
+    assert.ok(zeroDays.stderr.includes("Invalid value for --days: 0"))
+
+    const invalidWidth = run(["trend", "--width", "abc"])
+    assert.equal(invalidWidth.status, 1)
+    assert.ok(invalidWidth.stderr.includes("Invalid value for --width: abc"))
+
+    const missingMetric = run(["trend", "--metric"])
+    assert.equal(missingMetric.status, 1)
+    assert.ok(missingMetric.stderr.includes("Missing value for --metric"))
   })
 })
 
