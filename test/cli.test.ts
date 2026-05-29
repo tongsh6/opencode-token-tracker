@@ -90,6 +90,48 @@ describe("CLI export", () => {
     const res = run(["export", "--format", "json", "--period", "today"])
     assert.ok(res.stdout.startsWith("[") || res.stdout.includes("No data"))
   })
+
+  it("should write export output to a file", () => {
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const outputFile = join(tmpHome, "usage.csv")
+    const entry = {
+      type: "tokens",
+      _ts: Date.now(),
+      input: 1000,
+      output: 500,
+      cost: 0.01,
+      provider: "openai",
+      model: "gpt-4o",
+    }
+    writeFileSync(logsFile, JSON.stringify(entry) + "\n")
+
+    const res = run(["export", "--format", "csv", "--output", outputFile])
+    assert.equal(res.status, 0)
+    assert.ok(res.stdout.includes(`Exported 1 entries to ${outputFile}`))
+    assert.equal(existsSync(outputFile), true)
+    assert.ok(readFileSync(outputFile, "utf-8").includes("gpt-4o"))
+
+    rmSync(logsFile, { force: true })
+    rmSync(outputFile, { force: true })
+  })
+
+  it("should reject invalid export options", () => {
+    const invalidFormat = run(["export", "--format", "xml"])
+    assert.equal(invalidFormat.status, 1)
+    assert.ok(invalidFormat.stderr.includes("Unsupported export format: xml"))
+    assert.ok(invalidFormat.stderr.includes("Allowed formats: csv, json"))
+
+    const invalidPeriod = run(["export", "--period", "yesterday"])
+    assert.equal(invalidPeriod.status, 1)
+    assert.ok(invalidPeriod.stderr.includes("Unsupported export period: yesterday"))
+    assert.ok(invalidPeriod.stderr.includes("Allowed periods: today, week, month, all"))
+
+    const missingOutput = run(["export", "--output"])
+    assert.equal(missingOutput.status, 1)
+    assert.ok(missingOutput.stderr.includes("Missing value for --output"))
+  })
 })
 
 describe("CLI trend", () => {
