@@ -34,9 +34,27 @@ fix/     <- bug fix branches (fix/xxx)
    ```
 
 3. **Release to main**
-   - Merge dev -> main via PR
-   - Tag the release: `git tag v1.x.x`
-   - Publish to npm: `npm publish`
+   ```bash
+   git checkout dev
+   npm run release:check
+   npm run release:prepare
+   git push origin dev
+   # Open or update the dev -> main PR
+   ```
+
+   After the release PR is merged and `main` is clean and synced:
+
+   ```bash
+   git checkout main
+   git pull origin main
+   npm run release:tag
+   ```
+
+   `release:tag` creates and pushes `vX.Y.Z` from `main`. The pushed tag triggers
+   the GitHub Actions release workflow, which builds, tests, verifies that the tag
+   matches `package.json`, publishes to npm, and creates the GitHub Release.
+
+   Do not run `npm publish` manually for normal releases.
 
 ## Commit Convention
 
