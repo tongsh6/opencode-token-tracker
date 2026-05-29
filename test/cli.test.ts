@@ -46,6 +46,24 @@ describe("CLI help and stats", () => {
     assert.ok(res.stdout.includes("By Session") || res.stdout.includes("No data"))
   })
 
+  it("should reject unknown top-level commands and stats arguments", () => {
+    const unknownCommand = run(["frobnicate"])
+    assert.equal(unknownCommand.status, 1)
+    assert.ok(unknownCommand.stderr.includes("Unknown command or stats period: frobnicate"))
+
+    const misspelledPeriod = run(["todays"])
+    assert.equal(misspelledPeriod.status, 1)
+    assert.ok(misspelledPeriod.stderr.includes("Unknown command or stats period: todays"))
+
+    const extraStatsArg = run(["today", "extra"])
+    assert.equal(extraStatsArg.status, 1)
+    assert.ok(extraStatsArg.stderr.includes("Unexpected argument for stats command: extra"))
+
+    const validPeriod = run(["all", "--by", "model"])
+    assert.equal(validPeriod.status, 0)
+    assert.ok(validPeriod.stdout.includes("By Model") || validPeriod.stdout.includes("No data"))
+  })
+
   it("should reject invalid stats breakdown options", () => {
     const invalidLong = run(["--by", "bananas"])
     assert.equal(invalidLong.status, 1)
