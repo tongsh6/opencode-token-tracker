@@ -189,18 +189,39 @@ describe("BUILTIN_PRICING", () => {
 
   it("should contain all expected provider groups", () => {
     // Anthropic
+    assert.ok(BUILTIN_PRICING["claude-opus-4.8"], "missing claude-opus-4.8")
     assert.ok(BUILTIN_PRICING["claude-opus-4.6"], "missing claude-opus-4.6")
+    assert.ok(BUILTIN_PRICING["claude-sonnet-4.6"], "missing claude-sonnet-4.6")
     assert.ok(BUILTIN_PRICING["claude-sonnet-4.5"], "missing claude-sonnet-4.5")
     assert.ok(BUILTIN_PRICING["claude-haiku-4.5"], "missing claude-haiku-4.5")
     // OpenAI
+    assert.ok(BUILTIN_PRICING["gpt-5.5"], "missing gpt-5.5")
+    assert.ok(BUILTIN_PRICING["gpt-5.4"], "missing gpt-5.4")
+    assert.ok(BUILTIN_PRICING["gpt-5.3-codex"], "missing gpt-5.3-codex")
     assert.ok(BUILTIN_PRICING["gpt-5.2"], "missing gpt-5.2")
     assert.ok(BUILTIN_PRICING["o3"], "missing o3")
     // DeepSeek
     assert.ok(BUILTIN_PRICING["deepseek-chat"], "missing deepseek-chat")
     // Google
+    assert.ok(BUILTIN_PRICING["gemini-3.1-pro-preview"], "missing gemini-3.1-pro-preview")
+    assert.ok(BUILTIN_PRICING["gemini-3.5-flash"], "missing gemini-3.5-flash")
     assert.ok(BUILTIN_PRICING["gemini-3-pro"], "missing gemini-3-pro")
     assert.ok(BUILTIN_PRICING["gemini-2.5-flash"], "missing gemini-2.5-flash")
     assert.ok(BUILTIN_PRICING["gemini-2.0-flash-lite"], "missing gemini-2.0-flash-lite")
+  })
+
+  it("should keep audited current pricing for representative models", () => {
+    assert.deepEqual(BUILTIN_PRICING["claude-opus-4.8"], { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 })
+    assert.deepEqual(BUILTIN_PRICING["claude-sonnet-4.6"], { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 })
+    assert.deepEqual(BUILTIN_PRICING["gpt-5.5"], { input: 5, output: 30, cacheRead: 0.5 })
+    assert.deepEqual(BUILTIN_PRICING["gpt-5.4"], { input: 2.5, output: 15, cacheRead: 0.25 })
+    assert.deepEqual(BUILTIN_PRICING["gpt-5.1"], { input: 1.25, output: 10, cacheRead: 0.125 })
+    assert.deepEqual(BUILTIN_PRICING["gpt-4.1"], { input: 2, output: 8, cacheRead: 0.5 })
+    assert.deepEqual(BUILTIN_PRICING["o3"], { input: 2, output: 8, cacheRead: 0.5 })
+    assert.deepEqual(BUILTIN_PRICING["o4-mini"], { input: 1.1, output: 4.4, cacheRead: 0.275 })
+    assert.deepEqual(BUILTIN_PRICING["deepseek-chat"], { input: 0.14, output: 0.28, cacheRead: 0.0028 })
+    assert.deepEqual(BUILTIN_PRICING["gemini-3.1-pro-preview"], { input: 2, output: 12, cacheRead: 0.2 })
+    assert.deepEqual(BUILTIN_PRICING["gemini-3.5-flash"], { input: 1.5, output: 9, cacheRead: 0.15 })
   })
 
   it("should have at least 35 model entries (including _default)", () => {
@@ -815,4 +836,3 @@ describe("plugin entry export surface", () => {
     assert.strictEqual(pluginEntry.default, pluginEntry.TokenTrackerPlugin)
   })
 })
-
