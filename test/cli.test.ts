@@ -99,7 +99,49 @@ describe("CLI config", () => {
 
   it("should reject unknown config key", () => {
     const res = run(["config", "get", "nonexistent.key"])
-    assert.ok(res.stdout.includes("Unknown key"))
+    assert.equal(res.status, 1)
+    assert.ok(res.stderr.includes("Unknown config key: nonexistent.key"))
+    assert.ok(res.stderr.includes("Available keys:"))
+  })
+
+  it("should reject invalid config command usage", () => {
+    const missingGetKey = run(["config", "get"])
+    assert.equal(missingGetKey.status, 1)
+    assert.ok(missingGetKey.stderr.includes("Missing config key"))
+    assert.ok(missingGetKey.stderr.includes("opencode-tokens config get <key>"))
+
+    const missingSetKey = run(["config", "set"])
+    assert.equal(missingSetKey.status, 1)
+    assert.ok(missingSetKey.stderr.includes("Missing config key"))
+
+    const missingSetValue = run(["config", "set", "budget.daily"])
+    assert.equal(missingSetValue.status, 1)
+    assert.ok(missingSetValue.stderr.includes("Missing config value"))
+
+    const invalidType = run(["config", "set", "budget.daily", "abc"])
+    assert.equal(invalidType.status, 1)
+    assert.ok(invalidType.stderr.includes("Invalid type for budget.daily: expected number, got string"))
+
+    const negativeNumber = run(["config", "set", "budget.daily", "-1"])
+    assert.equal(negativeNumber.status, 1)
+    assert.ok(negativeNumber.stderr.includes("Invalid value for budget.daily: must be >= 0"))
+
+    const tooLargeNumber = run(["config", "set", "budget.warnAt", "2"])
+    assert.equal(tooLargeNumber.status, 1)
+    assert.ok(tooLargeNumber.stderr.includes("Invalid value for budget.warnAt: must be <= 1"))
+
+    const missingUnsetKey = run(["config", "unset"])
+    assert.equal(missingUnsetKey.status, 1)
+    assert.ok(missingUnsetKey.stderr.includes("Missing config key"))
+    assert.ok(missingUnsetKey.stderr.includes("opencode-tokens config unset <key>"))
+
+    const unknownUnsetKey = run(["config", "unset", "nonexistent.key"])
+    assert.equal(unknownUnsetKey.status, 1)
+    assert.ok(unknownUnsetKey.stderr.includes("Unknown config key: nonexistent.key"))
+
+    const unknownAction = run(["config", "wat"])
+    assert.equal(unknownAction.status, 1)
+    assert.ok(unknownAction.stderr.includes("Unknown config action: wat"))
   })
 })
 

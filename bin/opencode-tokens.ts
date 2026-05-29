@@ -145,7 +145,7 @@ function parseArgs(args: string[]): ParsedArgs {
       continue
     }
 
-    if (arg.startsWith("-") && arg.length === 2 && arg !== "--") {
+    if (/^-[A-Za-z]$/.test(arg)) {
       const next = args[i + 1]
       if (next && !next.startsWith("-")) {
         flags.set(arg.slice(1), next)
@@ -997,9 +997,12 @@ function cmdConfig(positional: string[]) {
 
   if (action === "get") {
     const key = positional[2]
-    if (!key) { console.log("\n  Usage: opencode-tokens config get <key>\n"); return }
+    if (!key) {
+      failCli("Missing config key", "Usage: opencode-tokens config get <key>")
+      return
+    }
     if (!SETTABLE_KEYS[key]) {
-      console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`)
+      failCli(`Unknown config key: ${key}`, `Available keys: ${Object.keys(SETTABLE_KEYS).join(", ")}`)
       return
     }
     const value = resolveConfigKey(config, key)
@@ -1010,17 +1013,33 @@ function cmdConfig(positional: string[]) {
   if (action === "set") {
     const key = positional[2]
     const rawValue = positional[3]
-    if (!key || !rawValue) { console.log("\n  Usage: opencode-tokens config set <key> <value>\n"); return }
+    if (!key) {
+      failCli("Missing config key", "Usage: opencode-tokens config set <key> <value>")
+      return
+    }
+    if (!rawValue) {
+      failCli("Missing config value", "Usage: opencode-tokens config set <key> <value>")
+      return
+    }
     const spec = SETTABLE_KEYS[key]
-    if (!spec) { console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`); return }
+    if (!spec) {
+      failCli(`Unknown config key: ${key}`, `Available keys: ${Object.keys(SETTABLE_KEYS).join(", ")}`)
+      return
+    }
     const value = parseConfigValue(rawValue)
     if (typeof value !== spec.type) {
-      console.log(`\n  Invalid type: expected ${spec.type}, got ${typeof value}\n`)
+      failCli(`Invalid type for ${key}: expected ${spec.type}, got ${typeof value}`)
       return
     }
     if (typeof value === "number") {
-      if (value < 0) { console.log(`\n  Value must be >= 0\n`); return }
-      if (spec.max !== undefined && value > spec.max) { console.log(`\n  Value must be <= ${spec.max}\n`); return }
+      if (value < 0) {
+        failCli(`Invalid value for ${key}: must be >= 0`)
+        return
+      }
+      if (spec.max !== undefined && value > spec.max) {
+        failCli(`Invalid value for ${key}: must be <= ${spec.max}`)
+        return
+      }
     }
     applyConfigSet(key, value)
     console.log(`\n  Set ${key} = ${JSON.stringify(value)}\n`)
@@ -1029,17 +1048,22 @@ function cmdConfig(positional: string[]) {
 
   if (action === "unset") {
     const key = positional[2]
-    if (!key) { console.log("\n  Usage: opencode-tokens config unset <key>\n"); return }
+    if (!key) {
+      failCli("Missing config key", "Usage: opencode-tokens config unset <key>")
+      return
+    }
     const spec = SETTABLE_KEYS[key]
-    if (!spec) { console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`); return }
+    if (!spec) {
+      failCli(`Unknown config key: ${key}`, `Available keys: ${Object.keys(SETTABLE_KEYS).join(", ")}`)
+      return
+    }
     applyConfigUnset(key)
     console.log(`\n  Unset ${key} (reverted to default)\n`)
     return
   }
 
   if (action && action !== "show") {
-    console.log(`\n  Unknown config action: ${action}`)
-    console.log(`  Usage: opencode-tokens config [show|init|generate|get|set|unset]\n`)
+    failCli(`Unknown config action: ${action}`, "Usage: opencode-tokens config [show|init|generate|get|set|unset]")
     return
   }
 
