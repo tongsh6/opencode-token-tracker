@@ -512,8 +512,13 @@ function cmdModels() {
   console.log(`  ${padRight("Model", modelWidth)}  ${padRight("Provider", providerWidth)}  ${padLeft("Msgs", countWidth)}  ${padRight("Pricing", statusWidth)}`)
   console.log(`  ${"-".repeat(modelWidth)}  ${"-".repeat(providerWidth)}  ${"-".repeat(countWidth)}  ${"-".repeat(statusWidth)}`)
   
+  const defaultModels: Array<{ model: string; provider: string; count: number }> = []
+
   for (const { model, provider, count } of sorted) {
     const status = resolvePricingStatus(config, model, provider)
+    if (status === "default") {
+      defaultModels.push({ model, provider, count })
+    }
     console.log(`  ${padRight(model, modelWidth)}  ${padRight(provider, providerWidth)}  ${padLeft(count.toString(), countWidth)}  ${padRight(status, statusWidth)}`)
   }
   
@@ -524,6 +529,22 @@ function cmdModels() {
   console.log(`    model cfg    = overridden by models config`)
   console.log(`    default      = unknown model, using $1/$4 per 1M tokens`)
   console.log()
+
+  if (defaultModels.length > 0) {
+    console.log(`  Next steps for default pricing:`)
+    console.log(`    ${defaultModels.length} model/provider ${defaultModels.length === 1 ? "pair uses" : "pairs use"} the default $1/$4 estimate.`)
+    console.log(`    Run: opencode-tokens config init`)
+    console.log(`    Or:  opencode-tokens config generate`)
+    console.log()
+    console.log(`    Review these generated model overrides before saving:`)
+    for (const { model, provider, count } of defaultModels.slice(0, 5)) {
+      console.log(`    - ${model} (${provider}, ${count} msgs): { "input": 1, "output": 4 }`)
+    }
+    if (defaultModels.length > 5) {
+      console.log(`    - ...and ${defaultModels.length - 5} more`)
+    }
+    console.log()
+  }
 }
 
 function cmdConfig(positional: string[]) {

@@ -99,6 +99,41 @@ describe("CLI trend", () => {
   })
 })
 
+describe("CLI models", () => {
+  it("should show actionable next steps for default-priced models", () => {
+    const configPath = join(tmpHome, ".config", "opencode", "token-tracker.json")
+    if (existsSync(configPath)) {
+      rmSync(configPath, { force: true })
+    }
+
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+
+    const entry = {
+      type: "tokens",
+      _ts: Date.now(),
+      input: 1000,
+      output: 1000,
+      cost: 0.01,
+      provider: "ollama",
+      model: "qwen3.5:35b-a3b",
+    }
+    writeFileSync(logsFile, JSON.stringify(entry) + "\n")
+
+    const res = run(["models"])
+    assert.equal(res.status, 0)
+    assert.ok(res.stdout.includes("qwen3.5:35b-a3b"))
+    assert.ok(res.stdout.includes("default"))
+    assert.ok(res.stdout.includes("Next steps for default pricing:"))
+    assert.ok(res.stdout.includes("opencode-tokens config init"))
+    assert.ok(res.stdout.includes("opencode-tokens config generate"))
+    assert.ok(res.stdout.includes("{ \"input\": 1, \"output\": 4 }"))
+
+    rmSync(logsFile, { force: true })
+  })
+})
+
 describe("CLI config stream separation and suggestions", () => {
   it("should run config init with clean stdout JSON and stderr guides", () => {
     const configPath = join(tmpHome, ".config", "opencode", "token-tracker.json")
