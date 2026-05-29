@@ -33,6 +33,8 @@ If you are building AI-assisted engineering workflows, we strongly recommend ado
 
 ## Installation
 
+### Plugin
+
 Add to your OpenCode config file (`~/.config/opencode/opencode.json`):
 
 ```json
@@ -43,6 +45,36 @@ Add to your OpenCode config file (`~/.config/opencode/opencode.json`):
 ```
 
 Restart OpenCode and the plugin will be automatically installed.
+
+This installs the package for OpenCode's plugin runtime. It does not add the
+`opencode-tokens` CLI command to your shell `PATH`.
+
+### CLI
+
+If you only need to run the CLI occasionally, use it through npm without a
+persistent install:
+
+```bash
+npx -y --package opencode-token-tracker opencode-tokens today
+```
+
+Equivalent `npm exec` form:
+
+```bash
+npm exec --yes --package opencode-token-tracker -- opencode-tokens today
+```
+
+If you want `opencode-tokens` to be available as a normal shell command, install
+the package with npm's global bin linking:
+
+```bash
+npm install -g opencode-token-tracker
+opencode-tokens today
+```
+
+If `opencode-tokens: command not found` appears after configuring the plugin,
+the plugin is still installed for OpenCode, but the CLI command has not been
+installed into your shell `PATH`. Use one of the CLI options above.
 
 ## Usage
 

@@ -33,6 +33,8 @@
 
 ## 安装
 
+### 插件
+
 在 OpenCode 配置文件 `~/.config/opencode/opencode.json` 中添加插件：
 
 ```json
@@ -43,6 +45,35 @@
 ```
 
 重启 OpenCode 后会自动安装插件。
+
+这一步只会让 OpenCode 的插件运行时安装并加载该包，不会把
+`opencode-tokens` CLI 命令加入你的 shell `PATH`。
+
+### CLI
+
+如果只是偶尔查看统计，可以不做持久安装，直接通过 npm 运行：
+
+```bash
+npx -y --package opencode-token-tracker opencode-tokens today
+```
+
+等价的 `npm exec` 写法：
+
+```bash
+npm exec --yes --package opencode-token-tracker -- opencode-tokens today
+```
+
+如果希望 `opencode-tokens` 成为普通 shell 命令，需要让 npm 建立全局
+bin 链接：
+
+```bash
+npm install -g opencode-token-tracker
+opencode-tokens today
+```
+
+如果你已经在 OpenCode 配置里添加了插件，但执行 `opencode-tokens today`
+提示 `opencode-tokens: command not found`，说明插件已供 OpenCode 加载，
+但 CLI 命令还没有安装到 shell `PATH`。请使用上面的任一 CLI 运行方式。
 
 ## 使用
 

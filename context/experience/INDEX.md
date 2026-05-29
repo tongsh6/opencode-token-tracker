@@ -22,3 +22,4 @@
 | 2026-02-11 | [lessons/2026-02-11-npm-test-glob-ci.md](lessons/2026-02-11-npm-test-glob-ci.md) | npm scripts 中 `**` glob 在 CI 不展开；应使用显式路径 |
 | 2026-02-11 | [lessons/2026-02-11-config-validation-strategy.md](lessons/2026-02-11-config-validation-strategy.md) | 配置验证选择静默修正 + warnings 收集，而非抛错拒绝 |
 | 2026-02-11 | [lessons/2026-02-11-release-context-sync.md](lessons/2026-02-11-release-context-sync.md) | Release 后必须回写 context 文档，避免 REPO_SNAPSHOT 脱节 |
+| 2026-05-29 | [lessons/2026-05-29-plugin-install-vs-cli-bin.md](lessons/2026-05-29-plugin-install-vs-cli-bin.md) | OpenCode 插件自动安装不等于 npm CLI bin 进入 shell PATH；安装文档需拆分说明 |
