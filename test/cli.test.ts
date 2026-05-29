@@ -46,6 +46,29 @@ describe("CLI help and stats", () => {
     assert.ok(res.stdout.includes("By Session") || res.stdout.includes("No data"))
   })
 
+  it("should reject invalid stats breakdown options", () => {
+    const invalidLong = run(["--by", "bananas"])
+    assert.equal(invalidLong.status, 1)
+    assert.ok(invalidLong.stderr.includes("Unsupported stats breakdown: bananas"))
+    assert.ok(invalidLong.stderr.includes("Allowed breakdowns: model, agent, provider, daily, day, session, all"))
+
+    const invalidPeriodLong = run(["today", "--by", "bananas"])
+    assert.equal(invalidPeriodLong.status, 1)
+    assert.ok(invalidPeriodLong.stderr.includes("Unsupported stats breakdown: bananas"))
+
+    const missingLong = run(["--by"])
+    assert.equal(missingLong.status, 1)
+    assert.ok(missingLong.stderr.includes("Missing value for --by"))
+
+    const invalidShort = run(["-b", "bananas"])
+    assert.equal(invalidShort.status, 1)
+    assert.ok(invalidShort.stderr.includes("Unsupported stats breakdown: bananas"))
+
+    const missingShort = run(["-b"])
+    assert.equal(missingShort.status, 1)
+    assert.ok(missingShort.stderr.includes("Missing value for -b"))
+  })
+
   it("should show budget with disclaimer", () => {
     // 1. Check with unconfigured budget
     const resUnconfigured = run(["budget"])
