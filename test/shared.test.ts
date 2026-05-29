@@ -202,6 +202,7 @@ describe("BUILTIN_PRICING", () => {
     assert.ok(BUILTIN_PRICING["o3"], "missing o3")
     // DeepSeek
     assert.ok(BUILTIN_PRICING["deepseek-chat"], "missing deepseek-chat")
+    assert.ok(BUILTIN_PRICING["deepseek-v4-pro"], "missing deepseek-v4-pro")
     // Google
     assert.ok(BUILTIN_PRICING["gemini-3.1-pro-preview"], "missing gemini-3.1-pro-preview")
     assert.ok(BUILTIN_PRICING["gemini-3.5-flash"], "missing gemini-3.5-flash")
@@ -220,6 +221,7 @@ describe("BUILTIN_PRICING", () => {
     assert.deepEqual(BUILTIN_PRICING["o3"], { input: 2, output: 8, cacheRead: 0.5 })
     assert.deepEqual(BUILTIN_PRICING["o4-mini"], { input: 1.1, output: 4.4, cacheRead: 0.275 })
     assert.deepEqual(BUILTIN_PRICING["deepseek-chat"], { input: 0.14, output: 0.28, cacheRead: 0.0028 })
+    assert.deepEqual(BUILTIN_PRICING["deepseek-v4-pro"], { input: 0.435, output: 0.87, cacheRead: 0.003625 })
     assert.deepEqual(BUILTIN_PRICING["gemini-3.1-pro-preview"], { input: 2, output: 12, cacheRead: 0.2 })
     assert.deepEqual(BUILTIN_PRICING["gemini-3.5-flash"], { input: 1.5, output: 9, cacheRead: 0.15 })
   })

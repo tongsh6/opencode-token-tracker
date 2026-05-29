@@ -29,7 +29,9 @@
 
 - `deepseek-chat` 与 `deepseek-reasoner` 继续按 DeepSeek-V4-Flash 兼容价格维护。
 - 当前表中 cache hit、cache miss、output 价格与官方页一致。
-- 未新增 `deepseek-v4-pro`，因为 OpenCode 常见模型名仍以兼容别名为主；后续如果 token log 出现该模型，再按实际模型名补 entry。
+- 新增 `deepseek-v4-pro`，因为本机真实 token log 已出现该模型名。
+- `deepseek-v4-pro` 采用官方当前 75% off 折扣价：cache hit $0.003625、cache miss $0.435、output $0.87 per 1M tokens。
+- 该折扣官方标注延长至 2026-05-31 15:59 UTC；折扣结束后需要重新核对，不应把当前值视为永久价。
 
 ### Google
 

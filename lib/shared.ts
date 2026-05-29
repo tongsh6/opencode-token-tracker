@@ -95,6 +95,9 @@ export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   // $0.14 input (cache miss), $0.0028 input (cache hit), $0.28 output
   "deepseek-chat": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
   "deepseek-reasoner": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
+  // DeepSeek-V4-Pro discounted pricing, current until 2026-05-31 15:59 UTC.
+  // $0.435 input (cache miss), $0.003625 input (cache hit), $0.87 output
+  "deepseek-v4-pro": { input: 0.435, output: 0.87, cacheRead: 0.003625 },
 
   // Google Gemini (https://cloud.google.com/vertex-ai/generative-ai/pricing)
   // Standard global text pricing at <=200K input tokens where tiered pricing applies.
@@ -719,4 +722,3 @@ export function calculateCost(
   
   return inputCost + outputCost + cacheReadCost + cacheWriteCost
 }
-
