@@ -398,7 +398,38 @@ function printDailyBreakdown(entries: TokenEntry[]) {
 // Commands
 // ============================================================================
 
-function cmdStats(period: string, breakdown?: string) {
+const STATS_BREAKDOWNS = ["model", "agent", "provider", "day", "daily", "session", "all"] as const
+type StatsBreakdown = typeof STATS_BREAKDOWNS[number]
+
+function isStatsBreakdown(value: string): value is StatsBreakdown {
+  return STATS_BREAKDOWNS.includes(value as StatsBreakdown)
+}
+
+function getStatsBreakdown(flags: Map<string, string | boolean>): StatsBreakdown | undefined {
+  const longValue = flagValue(flags, "by")
+  const shortValue = flagValue(flags, "b")
+
+  if (flags.has("by") && !longValue) {
+    failCli("Missing value for --by", "Usage: opencode-tokens [today|week|month|all] --by model|agent|provider|daily|session|all")
+    return undefined
+  }
+  if (flags.has("b") && !shortValue) {
+    failCli("Missing value for -b", "Usage: opencode-tokens [today|week|month|all] -b model|agent|provider|daily|session|all")
+    return undefined
+  }
+
+  const breakdown = longValue ?? shortValue
+  if (!breakdown) return undefined
+
+  if (!isStatsBreakdown(breakdown)) {
+    failCli(`Unsupported stats breakdown: ${breakdown}`, "Allowed breakdowns: model, agent, provider, daily, day, session, all")
+    return undefined
+  }
+
+  return breakdown
+}
+
+function cmdStats(period: string, breakdown?: StatsBreakdown) {
   const now = new Date()
   let since: number | undefined
   let title: string
@@ -1769,7 +1800,9 @@ function main() {
 
   // Default: stats
   let period = "all"
-  const breakdown = flagValue(parsed.flags, "by") || (parsed.flags.has("b") ? String(parsed.flags.get("b")) : undefined)
+  const breakdown = getStatsBreakdown(parsed.flags)
+  if (process.exitCode) return
+
   for (const p of ["today", "week", "month", "all"]) {
     if (parsed.positional.includes(p)) {
       period = p
