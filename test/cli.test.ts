@@ -100,7 +100,7 @@ describe("CLI trend", () => {
 })
 
 describe("CLI models", () => {
-  it("should show actionable next steps for default-priced models", () => {
+  it("should show actionable next steps for default-priced models and local providers", () => {
     const configPath = join(tmpHome, ".config", "opencode", "token-tracker.json")
     if (existsSync(configPath)) {
       rmSync(configPath, { force: true })
@@ -110,7 +110,7 @@ describe("CLI models", () => {
     mkdirSync(logsDir, { recursive: true })
     const logsFile = join(logsDir, "tokens.jsonl")
 
-    const entry = {
+    const localEntry = {
       type: "tokens",
       _ts: Date.now(),
       input: 1000,
@@ -119,15 +119,28 @@ describe("CLI models", () => {
       provider: "ollama",
       model: "qwen3.5:35b-a3b",
     }
-    writeFileSync(logsFile, JSON.stringify(entry) + "\n")
+    const paidEntry = {
+      type: "tokens",
+      _ts: Date.now(),
+      input: 1000,
+      output: 1000,
+      cost: 0.01,
+      provider: "mystery-api",
+      model: "fallback-gpt-7",
+    }
+    writeFileSync(logsFile, JSON.stringify(localEntry) + "\n" + JSON.stringify(paidEntry) + "\n")
 
     const res = run(["models"])
     assert.equal(res.status, 0)
     assert.ok(res.stdout.includes("qwen3.5:35b-a3b"))
+    assert.ok(res.stdout.includes("fallback-gpt-7"))
     assert.ok(res.stdout.includes("default"))
     assert.ok(res.stdout.includes("Next steps for default pricing:"))
     assert.ok(res.stdout.includes("opencode-tokens config init"))
     assert.ok(res.stdout.includes("opencode-tokens config generate"))
+    assert.ok(res.stdout.includes("Likely zero-cost provider overrides to review:"))
+    assert.ok(res.stdout.includes("ollama"))
+    assert.ok(res.stdout.includes("{ \"input\": 0, \"output\": 0 }"))
     assert.ok(res.stdout.includes("{ \"input\": 1, \"output\": 4 }"))
 
     rmSync(logsFile, { force: true })
@@ -184,7 +197,9 @@ describe("CLI doctor", () => {
     assert.ok(res.stdout.includes("Budget: configured"))
     assert.ok(res.stdout.includes("Entries: 1"))
     assert.ok(res.stdout.includes("Default-priced model/provider pairs: 1"))
+    assert.ok(res.stdout.includes("Likely zero-cost providers:"))
     assert.ok(res.stdout.includes("qwen3.5:35b-a3b"))
+    assert.ok(res.stdout.includes("ollama"))
     assert.ok(res.stdout.includes("opencode-tokens models"))
 
     rmSync(logsFile, { force: true })
@@ -290,6 +305,24 @@ describe("CLI config stream separation and suggestions", () => {
       }
       logLines += JSON.stringify(entry) + "\n"
     }
+    logLines += JSON.stringify({
+      type: "tokens",
+      _ts: now,
+      input: 1000,
+      output: 1000,
+      cost: 0,
+      provider: "ollama",
+      model: "qwen3.5:35b-a3b",
+    }) + "\n"
+    logLines += JSON.stringify({
+      type: "tokens",
+      _ts: now,
+      input: 1000,
+      output: 1000,
+      cost: 0,
+      provider: "mystery-api",
+      model: "paid-fallback-model",
+    }) + "\n"
     writeFileSync(logsFile, logLines)
 
     // 3. Run config init to capture dynamic recommendation budgets
@@ -304,20 +337,24 @@ describe("CLI config stream separation and suggestions", () => {
 
     // Detected zero-cost provider override in example config (P2)
     assert.deepEqual(parsed.providers["free-copilot"], { input: 0, output: 0 })
+    assert.deepEqual(parsed.providers["ollama"], { input: 0, output: 0 })
     // Detected fallback model override in example config (P2)
-    assert.deepEqual(parsed.models["fallback-gpt-7"], { input: 1, output: 4 })
+    assert.equal(parsed.models["fallback-gpt-7"], undefined)
+    assert.equal(parsed.models["qwen3.5:35b-a3b"], undefined)
+    assert.deepEqual(parsed.models["paid-fallback-model"], { input: 1, output: 4 })
 
     // Stderr output check: must print dynamic Usage-Aware Suggestions Summary (P2)
     assert.ok(res.stderr.includes("📢 Usage-Aware Suggestions Summary"))
-    assert.ok(res.stderr.includes("Found 7 historical usage entries"))
+    assert.ok(res.stderr.includes("Found 9 historical usage entries"))
     assert.ok(res.stderr.includes("Calculated 7-day average daily cost: $1.0000"))
     assert.ok(res.stderr.includes("Daily Limit   : $1.50"))
     assert.ok(res.stderr.includes("Weekly Limit  : $9.10"))
     assert.ok(res.stderr.includes("Monthly Limit : $36.00"))
-    assert.ok(res.stderr.includes("Detected zero-cost/subscription providers:"))
+    assert.ok(res.stderr.includes("Detected likely zero-cost providers:"))
     assert.ok(res.stderr.includes("free-copilot"))
+    assert.ok(res.stderr.includes("ollama"))
     assert.ok(res.stderr.includes("Detected unrecognized fallback models:"))
-    assert.ok(res.stderr.includes("fallback-gpt-7"))
+    assert.ok(res.stderr.includes("paid-fallback-model"))
 
     // Clean up fake files
     rmSync(logsFile, { force: true })

@@ -304,7 +304,7 @@ This helps you understand:
 - Whether pricing is from built-in table, your config, or default fallback
 - What to add to your config file
 
-`config init` is safe for piping because stdout contains only valid JSON and no file is written. `config generate` is the file-writing path: stdout stays empty, guides and status messages go to stderr, the parent directory is created when needed, and an existing config is backed up before overwrite.
+`config init` is safe for piping because stdout contains only valid JSON and no file is written. `config generate` is the file-writing path: stdout stays empty, guides and status messages go to stderr, the parent directory is created when needed, and an existing config is backed up before overwrite. Both commands inspect local logs and pre-fill likely zero-cost providers such as GitHub Copilot, Cursor, and Ollama.
 
 `doctor` is a read-only setup check. It reports whether the OpenCode plugin
 entry is present, whether the tracker config and token log exist, the latest log
@@ -414,8 +414,9 @@ All prices are in **USD per 1 million tokens**:
 
 | Scenario | Config |
 |----------|--------|
-| Subscription service (GitHub Copilot, Cursor) | `{ "input": 0, "output": 0 }` |
-| Free/local model | `{ "input": 0, "output": 0 }` |
+| Subscription service (GitHub Copilot, Cursor) | Provider override: `{ "input": 0, "output": 0 }` |
+| Free/local provider (Ollama, LM Studio, localhost) | Provider override: `{ "input": 0, "output": 0 }` |
+| Free/local model under a paid provider | Model override: `{ "input": 0, "output": 0 }` |
 | Custom API with known pricing | Look up provider's pricing page |
 
 ### Pricing Override
@@ -433,13 +434,14 @@ Exact user config is intentionally checked before built-ins, while broad partial
 
 #### Example: Free providers
 
-If you're using GitHub Copilot or other subscription-based services, set their cost to $0:
+If you're using GitHub Copilot, Ollama, LM Studio, or other subscription/local providers, set their provider cost to $0:
 
 ```json
 {
   "providers": {
     "github-copilot": { "input": 0, "output": 0 },
-    "cursor": { "input": 0, "output": 0 }
+    "cursor": { "input": 0, "output": 0 },
+    "ollama": { "input": 0, "output": 0 }
   }
 }
 ```

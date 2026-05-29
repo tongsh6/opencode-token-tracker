@@ -47,6 +47,11 @@ interface Stats {
   count: number
 }
 
+interface ZeroCostProviderMatch {
+  provider: string
+  reason: string
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -72,6 +77,31 @@ function formatAge(ts: number): string {
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
+}
+
+const ZERO_COST_PROVIDER_HINTS: Array<{ match: string; reason: string }> = [
+  { match: "copilot", reason: "subscription/bundled provider" },
+  { match: "cursor", reason: "subscription/bundled provider" },
+  { match: "free", reason: "free provider name" },
+  { match: "ollama", reason: "local/self-hosted provider" },
+  { match: "lmstudio", reason: "local/self-hosted provider" },
+  { match: "lm-studio", reason: "local/self-hosted provider" },
+  { match: "llamacpp", reason: "local/self-hosted provider" },
+  { match: "llama.cpp", reason: "local/self-hosted provider" },
+  { match: "local", reason: "local/self-hosted provider" },
+  { match: "localhost", reason: "local/self-hosted provider" },
+  { match: "self-hosted", reason: "local/self-hosted provider" },
+  { match: "selfhosted", reason: "local/self-hosted provider" },
+]
+
+function getZeroCostProviderMatch(provider: string): ZeroCostProviderMatch | undefined {
+  const normalized = provider.toLowerCase().replace(/\s+/g, "")
+  for (const hint of ZERO_COST_PROVIDER_HINTS) {
+    if (normalized.includes(hint.match)) {
+      return { provider, reason: hint.reason }
+    }
+  }
+  return undefined
 }
 
 // ============================================================================
@@ -529,11 +559,17 @@ function cmdModels() {
   console.log(`  ${"-".repeat(modelWidth)}  ${"-".repeat(providerWidth)}  ${"-".repeat(countWidth)}  ${"-".repeat(statusWidth)}`)
   
   const defaultModels: Array<{ model: string; provider: string; count: number }> = []
+  const zeroCostProviderModels: Array<{ model: string; provider: string; count: number; reason: string }> = []
 
   for (const { model, provider, count } of sorted) {
     const status = resolvePricingStatus(config, model, provider)
     if (status === "default") {
-      defaultModels.push({ model, provider, count })
+      const zeroCostMatch = getZeroCostProviderMatch(provider)
+      if (zeroCostMatch) {
+        zeroCostProviderModels.push({ model, provider, count, reason: zeroCostMatch.reason })
+      } else {
+        defaultModels.push({ model, provider, count })
+      }
     }
     console.log(`  ${padRight(model, modelWidth)}  ${padRight(provider, providerWidth)}  ${padLeft(count.toString(), countWidth)}  ${padRight(status, statusWidth)}`)
   }
@@ -546,20 +582,35 @@ function cmdModels() {
   console.log(`    default      = unknown model, using $1/$4 per 1M tokens`)
   console.log()
 
-  if (defaultModels.length > 0) {
+  if (zeroCostProviderModels.length > 0 || defaultModels.length > 0) {
     console.log(`  Next steps for default pricing:`)
-    console.log(`    ${defaultModels.length} model/provider ${defaultModels.length === 1 ? "pair uses" : "pairs use"} the default $1/$4 estimate.`)
+    const total = zeroCostProviderModels.length + defaultModels.length
+    console.log(`    ${total} model/provider ${total === 1 ? "pair uses" : "pairs use"} the default $1/$4 estimate.`)
     console.log(`    Run: opencode-tokens config init`)
     console.log(`    Or:  opencode-tokens config generate`)
     console.log()
-    console.log(`    Review these generated model overrides before saving:`)
-    for (const { model, provider, count } of defaultModels.slice(0, 5)) {
-      console.log(`    - ${model} (${provider}, ${count} msgs): { "input": 1, "output": 4 }`)
+
+    if (zeroCostProviderModels.length > 0) {
+      console.log(`    Likely zero-cost provider overrides to review:`)
+      for (const { provider, reason } of dedupeZeroCostProviderMatches(zeroCostProviderModels).slice(0, 5)) {
+        console.log(`    - ${provider} (${reason}): { "input": 0, "output": 0 }`)
+      }
+      if (zeroCostProviderModels.length > 5) {
+        console.log(`    - ...and ${zeroCostProviderModels.length - 5} more model/provider pairs`)
+      }
+      console.log()
     }
-    if (defaultModels.length > 5) {
-      console.log(`    - ...and ${defaultModels.length - 5} more`)
+
+    if (defaultModels.length > 0) {
+      console.log(`    Model overrides to review before saving:`)
+      for (const { model, provider, count } of defaultModels.slice(0, 5)) {
+        console.log(`    - ${model} (${provider}, ${count} msgs): { "input": 1, "output": 4 }`)
+      }
+      if (defaultModels.length > 5) {
+        console.log(`    - ...and ${defaultModels.length - 5} more`)
+      }
+      console.log()
     }
-    console.log()
   }
 }
 
@@ -615,6 +666,12 @@ function cmdDoctor() {
   console.log()
 
   const defaultModels = getDefaultModelProviders(entries, configDiagnostics.config)
+  const zeroCostProviders = dedupeZeroCostProviderMatches(
+    defaultModels.flatMap(({ model, provider, count }) => {
+      const match = getZeroCostProviderMatch(provider)
+      return match ? [{ model, provider, count, reason: match.reason }] : []
+    })
+  )
   console.log(`  Pricing`)
   console.log(`    Built-in pricing updated: ${BUILTIN_PRICING_META.pricingLastUpdated}`)
   console.log(`    Default-priced model/provider pairs: ${defaultModels.length}`)
@@ -623,6 +680,12 @@ function cmdDoctor() {
   }
   if (defaultModels.length > 5) {
     console.log(`    - ...and ${defaultModels.length - 5} more`)
+  }
+  if (zeroCostProviders.length > 0) {
+    console.log(`    Likely zero-cost providers:`)
+    for (const { provider, reason } of zeroCostProviders.slice(0, 5)) {
+      console.log(`    - ${provider} (${reason})`)
+    }
   }
   console.log()
 
@@ -712,6 +775,18 @@ function getDefaultModelProviders(entries: TokenEntry[], config: TrackerConfig):
     .sort((a, b) => b.lastUsed - a.lastUsed)
 }
 
+function dedupeZeroCostProviderMatches(
+  items: Array<{ provider: string; reason: string }>,
+): ZeroCostProviderMatch[] {
+  const providers = new Map<string, ZeroCostProviderMatch>()
+  for (const item of items) {
+    if (!providers.has(item.provider)) {
+      providers.set(item.provider, { provider: item.provider, reason: item.reason })
+    }
+  }
+  return Array.from(providers.values())
+}
+
 function cmdConfig(positional: string[]) {
   const action = positional[1]
   const config = loadConfig()
@@ -756,13 +831,15 @@ function cmdConfig(positional: string[]) {
       },
     }
     
-    const suggestedProviders: string[] = []
-    // Add providers as comments/examples (Common free providers)
+    const suggestedProviders: ZeroCostProviderMatch[] = []
+    const suggestedProviderNames = new Set<string>()
+    // Add likely zero-cost providers detected from logs.
     for (const provider of providers) {
-      const pLower = provider.toLowerCase()
-      if (pLower.includes("copilot") || pLower.includes("cursor") || pLower.includes("free")) {
+      const zeroCostMatch = getZeroCostProviderMatch(provider)
+      if (zeroCostMatch) {
         exampleConfig.providers[provider] = { input: 0, output: 0 }
-        suggestedProviders.push(provider)
+        suggestedProviders.push(zeroCostMatch)
+        suggestedProviderNames.add(provider)
       }
     }
     
@@ -771,6 +848,7 @@ function cmdConfig(positional: string[]) {
     for (const mp of modelProviders) {
       const [model, provider] = mp.split("|")
       if (model === "unknown" || provider === "unknown") continue
+      if (suggestedProviderNames.has(provider)) continue
       const status = resolvePricingStatus(config, model, provider)
       if (status === "default") {
         exampleConfig.models[model] = { input: 1, output: 4 }
@@ -803,10 +881,10 @@ function cmdConfig(positional: string[]) {
 
     if (suggestedProviders.length > 0) {
       suggestionsSummary += `
-  Detected zero-cost/subscription providers:
+  Detected likely zero-cost providers:
 `
-      for (const p of suggestedProviders) {
-        suggestionsSummary += `    • ${p} (automatically pre-configured to $0.00)\n`
+      for (const { provider, reason } of suggestedProviders) {
+        suggestionsSummary += `    • ${provider} (${reason}, automatically pre-configured to $0.00)\n`
       }
     }
 
@@ -836,11 +914,11 @@ function cmdConfig(positional: string[]) {
 
   Examples:
     { "input": 15, "output": 75 }     = $15 per 1M input, $75 per 1M output
-    { "input": 0, "output": 0 }       = Free (subscription or local model)
+    { "input": 0, "output": 0 }       = Free (subscription or local provider/model)
 
   Common scenarios:
     - GitHub Copilot, Cursor, etc.   → Set provider to { input: 0, output: 0 }
-    - Local/self-hosted models       → Set to 0
+    - Ollama, LM Studio, localhost   → Set provider to { input: 0, output: 0 }
     - Direct API usage               → Look up provider's pricing page
 
   Where to find pricing:
