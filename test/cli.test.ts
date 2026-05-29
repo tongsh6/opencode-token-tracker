@@ -240,6 +240,7 @@ describe("CLI pricing metadata and notice", () => {
     assert.ok(res.stdout.includes("Fallback Pricing Notice:"))
     assert.ok(res.stdout.includes("claude-sonnet-4.6"))
     assert.ok(res.stdout.includes("gpt-5.5"))
+    assert.ok(res.stdout.includes("deepseek-v4-pro"))
     assert.ok(res.stdout.includes("gemini-3.1-pro-preview"))
   })
 })
