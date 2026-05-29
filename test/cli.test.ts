@@ -134,6 +134,65 @@ describe("CLI models", () => {
   })
 })
 
+describe("CLI doctor", () => {
+  it("should diagnose missing setup and empty logs", () => {
+    const configDir = join(tmpHome, ".config", "opencode")
+    const trackerConfigPath = join(configDir, "token-tracker.json")
+    const opencodeConfigPath = join(configDir, "opencode.jsonc")
+    const logsFile = join(configDir, "logs", "token-tracker", "tokens.jsonl")
+
+    rmSync(trackerConfigPath, { force: true })
+    rmSync(opencodeConfigPath, { force: true })
+    rmSync(logsFile, { force: true })
+
+    const res = run(["doctor"])
+    assert.equal(res.status, 0)
+    assert.ok(res.stdout.includes("OpenCode Token Tracker Doctor"))
+    assert.ok(res.stdout.includes("OpenCode plugin config"))
+    assert.ok(res.stdout.includes("File: not found"))
+    assert.ok(res.stdout.includes("Tracker config"))
+    assert.ok(res.stdout.includes("Status: using defaults"))
+    assert.ok(res.stdout.includes("Token log"))
+    assert.ok(res.stdout.includes("Entries: 0"))
+    assert.ok(res.stdout.includes("Next steps"))
+  })
+
+  it("should diagnose configured plugin, logs, and default pricing", () => {
+    const configDir = join(tmpHome, ".config", "opencode")
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(configDir, "opencode.jsonc"), `{\n  "plugin": ["opencode-token-tracker"]\n}\n`)
+    writeFileSync(join(configDir, "token-tracker.json"), JSON.stringify({ budget: { daily: 5 } }, null, 2))
+
+    const logsDir = join(configDir, "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const entry = {
+      type: "tokens",
+      _ts: Date.now(),
+      input: 1000,
+      output: 1000,
+      cost: 0.01,
+      provider: "ollama",
+      model: "qwen3.5:35b-a3b",
+    }
+    writeFileSync(logsFile, JSON.stringify(entry) + "\n")
+
+    const res = run(["doctor"])
+    assert.equal(res.status, 0)
+    assert.ok(res.stdout.includes("Plugin entry: found"))
+    assert.ok(res.stdout.includes("Status: exists"))
+    assert.ok(res.stdout.includes("Budget: configured"))
+    assert.ok(res.stdout.includes("Entries: 1"))
+    assert.ok(res.stdout.includes("Default-priced model/provider pairs: 1"))
+    assert.ok(res.stdout.includes("qwen3.5:35b-a3b"))
+    assert.ok(res.stdout.includes("opencode-tokens models"))
+
+    rmSync(logsFile, { force: true })
+    rmSync(join(configDir, "opencode.jsonc"), { force: true })
+    rmSync(join(configDir, "token-tracker.json"), { force: true })
+  })
+})
+
 describe("CLI config stream separation and suggestions", () => {
   it("should run config init with clean stdout JSON and stderr guides", () => {
     const configPath = join(tmpHome, ".config", "opencode", "token-tracker.json")

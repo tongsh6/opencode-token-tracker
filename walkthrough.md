@@ -74,9 +74,13 @@ opencode-tokens today --by model
 
 # 查看模型定价来源
 opencode-tokens models
+
+# 诊断插件配置、日志与默认定价回退
+opencode-tokens doctor
 ```
 
 `models` 命令会显示每个模型当前使用的是 provider 覆盖、用户配置、内置价格，还是默认 fallback。
+`doctor` 命令是只读检查，用于确认插件配置、token log、tracker 配置和 default pricing 下一步。
 
 ## 4. 生成配置
 
