@@ -1126,10 +1126,55 @@ function saveConfig(raw: TrackerConfig | Record<string, unknown>): void {
 // Export
 // ============================================================================
 
+const EXPORT_FORMATS = ["csv", "json"] as const
+const EXPORT_PERIODS = ["today", "week", "month", "all"] as const
+
+function failCli(message: string, usage?: string): void {
+  process.stderr.write(`\n  Error: ${message}\n`)
+  if (usage) {
+    process.stderr.write(`  ${usage}\n`)
+  }
+  process.stderr.write("\n")
+  process.exitCode = 1
+}
+
+function isExportFormat(format: string): format is typeof EXPORT_FORMATS[number] {
+  return EXPORT_FORMATS.includes(format as typeof EXPORT_FORMATS[number])
+}
+
+function isExportPeriod(period: string): period is typeof EXPORT_PERIODS[number] {
+  return EXPORT_PERIODS.includes(period as typeof EXPORT_PERIODS[number])
+}
+
 function cmdExport(flags: Map<string, string | boolean>) {
-  const format = flagValue(flags, "format") || "csv"
-  const period = flagValue(flags, "period") || "all"
+  const formatValue = flagValue(flags, "format")
+  const periodValue = flagValue(flags, "period")
   const outputFile = flagValue(flags, "output")
+
+  if (flags.has("format") && !formatValue) {
+    failCli("Missing value for --format", "Usage: opencode-tokens export --format csv|json")
+    return
+  }
+  if (flags.has("period") && !periodValue) {
+    failCli("Missing value for --period", "Usage: opencode-tokens export --period today|week|month|all")
+    return
+  }
+  if (flags.has("output") && !outputFile) {
+    failCli("Missing value for --output", "Usage: opencode-tokens export --output <file>")
+    return
+  }
+
+  const format = formatValue ?? "csv"
+  const period = periodValue ?? "all"
+
+  if (!isExportFormat(format)) {
+    failCli(`Unsupported export format: ${format}`, "Allowed formats: csv, json")
+    return
+  }
+  if (!isExportPeriod(period)) {
+    failCli(`Unsupported export period: ${period}`, "Allowed periods: today, week, month, all")
+    return
+  }
 
   const now = new Date()
   let since: number | undefined
@@ -1171,7 +1216,13 @@ function cmdExport(flags: Map<string, string | boolean>) {
   }
 
   if (outputFile) {
-    writeFileSync(outputFile, output)
+    try {
+      writeFileSync(outputFile, output)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      failCli(`Failed to write export file: ${detail}`)
+      return
+    }
     console.log(`\n  Exported ${entries.length} entries to ${outputFile}\n`)
   } else {
     process.stdout.write(output)
