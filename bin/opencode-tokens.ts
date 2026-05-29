@@ -2,13 +2,19 @@
 
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { TrackerConfig } from "../lib/shared.js"
 import { BUILTIN_PRICING, DEFAULT_CONFIG, formatCost, formatTokens, getStartOfDay, getStartOfMonth, getStartOfWeek, validateConfig, BUILTIN_PRICING_META, resolvePricingStatus, round2 } from "../lib/shared.js"
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
 const LOG_FILE = join(CONFIG_DIR, "logs", "token-tracker", "tokens.jsonl")
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
+const OPENCODE_CONFIG_FILES = [
+  join(CONFIG_DIR, "opencode.json"),
+  join(CONFIG_DIR, "opencode.jsonc"),
+]
 
 // ============================================================================
 // Types
@@ -56,6 +62,16 @@ function padLeft(str: string, len: number): string {
 function truncateSessionId(sessionId?: string): string {
   if (!sessionId) return "unknown"
   return sessionId.length > 16 ? `${sessionId.slice(0, 14)}…` : sessionId
+}
+
+function formatAge(ts: number): string {
+  const diffMs = Date.now() - ts
+  if (diffMs < 60_000) return "less than 1m ago"
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
 }
 
 // ============================================================================
@@ -545,6 +561,155 @@ function cmdModels() {
     }
     console.log()
   }
+}
+
+function cmdDoctor() {
+  const entries = loadEntries()
+  const configDiagnostics = inspectTrackerConfig()
+  const pluginDiagnostics = inspectOpenCodePluginConfig()
+
+  console.log(`
+  OpenCode Token Tracker Doctor
+  ══════════════════════════════════════════════════════════════════
+`)
+
+  console.log(`  CLI`)
+  console.log(`    Entry: ${process.argv[1] ?? "unknown"}`)
+  console.log(`    Package version: ${readPackageJsonVersion()}`)
+  console.log()
+
+  console.log(`  OpenCode plugin config`)
+  if (pluginDiagnostics.found) {
+    console.log(`    File: ${pluginDiagnostics.path}`)
+    console.log(`    Plugin entry: ${pluginDiagnostics.hasPlugin ? "found" : "missing"}`)
+  } else {
+    console.log(`    File: not found (${OPENCODE_CONFIG_FILES.map((p) => p.replace(`${homedir()}/`, "~/")).join(" or ")})`)
+    console.log(`    Plugin entry: unknown`)
+  }
+  console.log()
+
+  console.log(`  Tracker config`)
+  console.log(`    File: ${CONFIG_FILE}`)
+  console.log(`    Status: ${configDiagnostics.exists ? "exists" : "using defaults"}`)
+  if (configDiagnostics.parseError) {
+    console.log(`    Warning: ${configDiagnostics.parseError}`)
+  }
+  for (const warning of configDiagnostics.warnings) {
+    console.log(`    Warning: ${warning}`)
+  }
+  const budget = configDiagnostics.config.budget
+  const hasBudget = Boolean(budget.daily || budget.weekly || budget.monthly)
+  console.log(`    Budget: ${hasBudget ? "configured" : "not configured"}`)
+  console.log()
+
+  console.log(`  Token log`)
+  if (!existsSync(LOG_FILE)) {
+    console.log(`    File: not found (${LOG_FILE})`)
+    console.log(`    Entries: 0`)
+  } else {
+    const latest = entries[entries.length - 1]
+    console.log(`    File: ${LOG_FILE}`)
+    console.log(`    Entries: ${entries.length}`)
+    console.log(`    Latest: ${latest ? `${new Date(latest._ts).toISOString()} (${formatAge(latest._ts)})` : "none"}`)
+  }
+  console.log()
+
+  const defaultModels = getDefaultModelProviders(entries, configDiagnostics.config)
+  console.log(`  Pricing`)
+  console.log(`    Built-in pricing updated: ${BUILTIN_PRICING_META.pricingLastUpdated}`)
+  console.log(`    Default-priced model/provider pairs: ${defaultModels.length}`)
+  for (const { model, provider, count } of defaultModels.slice(0, 5)) {
+    console.log(`    - ${model} (${provider}, ${count} msgs)`)
+  }
+  if (defaultModels.length > 5) {
+    console.log(`    - ...and ${defaultModels.length - 5} more`)
+  }
+  console.log()
+
+  const nextSteps: string[] = []
+  if (!pluginDiagnostics.found || !pluginDiagnostics.hasPlugin) {
+    nextSteps.push(`Add "opencode-token-tracker" to your OpenCode plugin config.`)
+  }
+  if (!existsSync(LOG_FILE) || entries.length === 0) {
+    nextSteps.push(`Run an OpenCode request, then check ${LOG_FILE}.`)
+  }
+  if (configDiagnostics.parseError || configDiagnostics.warnings.length > 0) {
+    nextSteps.push(`Fix ${CONFIG_FILE} or regenerate it with: opencode-tokens config generate`)
+  }
+  if (defaultModels.length > 0) {
+    nextSteps.push(`Review default pricing with: opencode-tokens models`)
+    nextSteps.push(`Generate suggested overrides with: opencode-tokens config init`)
+  }
+  if (!hasBudget) {
+    nextSteps.push(`Configure optional budgets with: opencode-tokens config init`)
+  }
+
+  console.log(`  Next steps`)
+  if (nextSteps.length === 0) {
+    console.log(`    No obvious issues found.`)
+  } else {
+    for (const step of nextSteps) {
+      console.log(`    - ${step}`)
+    }
+  }
+  console.log()
+}
+
+function readPackageJsonVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf-8")) as { version?: unknown }
+    return typeof pkg.version === "string" ? pkg.version : "unknown"
+  } catch {
+    return "unknown"
+  }
+}
+
+function inspectOpenCodePluginConfig(): { found: boolean; path?: string; hasPlugin: boolean } {
+  for (const path of OPENCODE_CONFIG_FILES) {
+    if (!existsSync(path)) continue
+    const raw = readFileSync(path, "utf-8")
+    return {
+      found: true,
+      path,
+      hasPlugin: raw.includes("opencode-token-tracker"),
+    }
+  }
+  return { found: false, hasPlugin: false }
+}
+
+function inspectTrackerConfig(): { exists: boolean; config: TrackerConfig; warnings: string[]; parseError?: string } {
+  if (!existsSync(CONFIG_FILE)) {
+    return { exists: false, config: DEFAULT_CONFIG, warnings: [] }
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+    const result = validateConfig(raw)
+    return { exists: true, config: result.config, warnings: result.warnings }
+  } catch {
+    return { exists: true, config: DEFAULT_CONFIG, warnings: [], parseError: "Config file is not valid JSON, using defaults" }
+  }
+}
+
+function getDefaultModelProviders(entries: TokenEntry[], config: TrackerConfig): Array<{ model: string; provider: string; count: number }> {
+  const counts = new Map<string, { model: string; provider: string; count: number; lastUsed: number }>()
+  for (const e of entries) {
+    const model = e.model ?? "unknown"
+    const provider = e.provider ?? "unknown"
+    if (model === "unknown" || provider === "unknown") continue
+    const key = `${model}|${provider}`
+    let item = counts.get(key)
+    if (!item) {
+      item = { model, provider, count: 0, lastUsed: 0 }
+      counts.set(key, item)
+    }
+    item.count++
+    item.lastUsed = Math.max(item.lastUsed, e._ts)
+  }
+
+  return Array.from(counts.values())
+    .filter(({ model, provider }) => resolvePricingStatus(config, model, provider) === "default")
+    .sort((a, b) => b.lastUsed - a.lastUsed)
 }
 
 function cmdConfig(positional: string[]) {
@@ -1061,6 +1226,7 @@ function cmdHelp() {
   Commands:
     (default)     Show usage statistics
     budget        Show budget status (daily/weekly/monthly)
+    doctor        Diagnose plugin config, logs, and pricing fallbacks
     pricing       Show built-in pricing table
     models        Show your used models and their pricing status
     config        Show/generate/modify configuration
@@ -1099,6 +1265,7 @@ function cmdHelp() {
 
   Examples:
     opencode-tokens                       # All-time summary
+    opencode-tokens doctor                # Diagnose setup and logs
     opencode-tokens today --by model      # Today by model
     opencode-tokens week --by session     # This week by session
     opencode-tokens trend --days 7        # 7-day cost trend
@@ -1403,6 +1570,9 @@ function main() {
   switch (command) {
     case "budget":
       cmdBudget()
+      return
+    case "doctor":
+      cmdDoctor()
       return
     case "pricing":
       cmdPricing()

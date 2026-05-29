@@ -270,6 +270,9 @@ Config changes are automatically backed up to `token-tracker.json.bak`.
 # Check budget status
 opencode-tokens budget
 
+# Diagnose plugin config, logs, and pricing fallbacks
+opencode-tokens doctor
+
 # Show built-in pricing table
 opencode-tokens pricing
 
@@ -302,6 +305,10 @@ This helps you understand:
 - What to add to your config file
 
 `config init` is safe for piping because stdout contains only valid JSON and no file is written. `config generate` is the file-writing path: stdout stays empty, guides and status messages go to stderr, the parent directory is created when needed, and an existing config is backed up before overwrite.
+
+`doctor` is a read-only setup check. It reports whether the OpenCode plugin
+entry is present, whether the tracker config and token log exist, the latest log
+record, default-priced models, and the next command to run.
 
 ## Log Files
 

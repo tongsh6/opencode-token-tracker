@@ -274,6 +274,9 @@ opencode-tokens config unset budget.daily
 # 查看预算状态
 opencode-tokens budget
 
+# 诊断插件配置、日志与默认定价回退
+opencode-tokens doctor
+
 # 查看内置定价表
 opencode-tokens pricing
 
@@ -307,6 +310,9 @@ opencode-tokens config generate
 - 需要在配置文件中补充哪些模型定价
 
 `config init` 适合管道重定向，因为 stdout 只包含合法 JSON，且不会写文件。`config generate` 是写文件路径：stdout 保持为空，说明和状态信息输出到 stderr；父目录不存在时会自动创建，覆盖已有配置前会先备份。
+
+`doctor` 是只读诊断命令，会检查 OpenCode 插件入口、tracker 配置、token log、
+最新记录、默认定价回退模型，并给出下一步应该运行的命令。
 
 ## 日志文件
 
