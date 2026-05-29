@@ -18,30 +18,32 @@ export interface ProviderModelPricingMap {
 }
 
 // ============================================================================
-// Built-in Pricing (USD per 1M tokens) - Updated 2026-02-11
+// Built-in Pricing (USD per 1M tokens) - Updated 2026-05-29
 // Sources:
-// - Anthropic: https://www.anthropic.com/pricing#api
-// - OpenAI: https://openai.com/api/pricing/
+// - Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
+// - OpenAI: https://developers.openai.com/api/docs/pricing
 // - DeepSeek: https://api-docs.deepseek.com/quick_start/pricing
 // - Google: https://cloud.google.com/vertex-ai/generative-ai/pricing
 // ============================================================================
 
 export const BUILTIN_PRICING_META = {
-  pricingLastUpdated: "2026-02-11",
-  metadataLastUpdated: "2026-05-24",
+  pricingLastUpdated: "2026-05-29",
+  metadataLastUpdated: "2026-05-29",
   source: "Provider official pricing pages",
   notes: "Manually maintained. Report stale prices: https://github.com/tongsh6/opencode-token-tracker/issues/new",
 } as const
 
 export const BUILTIN_PRICING: Record<string, ModelPricing> = {
-  // Anthropic Claude (https://www.anthropic.com/pricing#api)
-  // Opus 4.6: $5 input, $25 output (≤200K), cache write $6.25, cache read $0.50
+  // Anthropic Claude (https://platform.claude.com/docs/en/about-claude/pricing)
+  // Opus 4.8/4.7/4.6/4.5: $5 input, $25 output, cache write $6.25, cache read $0.50
+  "claude-opus-4.8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-4.7": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   "claude-opus-4.6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  // Opus 4.5 (legacy): same pricing as Opus 4.6
   "claude-opus-4.5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  // Sonnet 4.5: $3 input, $15 output (≤200K), cache write $3.75, cache read $0.30
+  // Sonnet 4.6/4.5: $3 input, $15 output, cache write $3.75, cache read $0.30
+  "claude-sonnet-4.6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   "claude-sonnet-4.5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  // Sonnet 4: $3 input, $15 output
+  // Sonnet 4 (deprecated): $3 input, $15 output
   "claude-sonnet-4": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   // Haiku 4.5: $1 input, $5 output, cache write $1.25, cache read $0.10
   "claude-haiku-4.5": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
@@ -51,26 +53,42 @@ export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   "claude-opus-4": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
   "claude-haiku-3": { input: 0.25, output: 1.25, cacheRead: 0.03, cacheWrite: 0.3 },
 
-  // OpenAI GPT (https://openai.com/api/pricing/)
-  // GPT-5.2: $1.75 input, $14 output (flagship)
+  // OpenAI GPT (https://developers.openai.com/api/docs/pricing)
+  // GPT-5.5/5.4 standard short-context text pricing.
+  "gpt-5.5": { input: 5, output: 30, cacheRead: 0.5 },
+  "gpt-5.5-pro": { input: 30, output: 180 },
+  "gpt-5.4": { input: 2.5, output: 15, cacheRead: 0.25 },
+  "gpt-5.4-mini": { input: 0.75, output: 4.5, cacheRead: 0.075 },
+  "gpt-5.4-nano": { input: 0.2, output: 1.25, cacheRead: 0.02 },
+  "gpt-5.4-pro": { input: 30, output: 180 },
+  "gpt-5.3-codex": { input: 1.75, output: 14, cacheRead: 0.175 },
+  "gpt-5.3-chat-latest": { input: 1.75, output: 14, cacheRead: 0.175 },
+  // GPT-5.2 and earlier GPT-5 family.
   "gpt-5.2": { input: 1.75, output: 14, cacheRead: 0.175 },
   "gpt-5.2-pro": { input: 21, output: 168 },
   "gpt-5-mini": { input: 0.25, output: 2, cacheRead: 0.025 },
-  "gpt-5.1": { input: 2, output: 8 },
-  "gpt-5": { input: 5, output: 15 },
-  // GPT-4.1 series (fine-tuning prices, base may differ)
-  "gpt-4.1": { input: 3, output: 12, cacheRead: 0.75 },
-  "gpt-4.1-mini": { input: 0.8, output: 3.2, cacheRead: 0.2 },
-  "gpt-4.1-nano": { input: 0.2, output: 0.8, cacheRead: 0.05 },
+  "gpt-5-nano": { input: 0.05, output: 0.4, cacheRead: 0.005 },
+  "gpt-5.1": { input: 1.25, output: 10, cacheRead: 0.125 },
+  "gpt-5.1-chat-latest": { input: 1.25, output: 10, cacheRead: 0.125 },
+  "gpt-5.1-codex-max": { input: 1.25, output: 10, cacheRead: 0.125 },
+  "gpt-5.1-codex": { input: 1.25, output: 10, cacheRead: 0.125 },
+  "gpt-5.1-codex-mini": { input: 0.25, output: 2, cacheRead: 0.025 },
+  "gpt-5": { input: 1.25, output: 10, cacheRead: 0.125 },
+  "gpt-5-chat-latest": { input: 1.25, output: 10, cacheRead: 0.125 },
+  "gpt-5-codex": { input: 1.25, output: 10, cacheRead: 0.125 },
+  // GPT-4.1 series
+  "gpt-4.1": { input: 2, output: 8, cacheRead: 0.5 },
+  "gpt-4.1-mini": { input: 0.4, output: 1.6, cacheRead: 0.1 },
+  "gpt-4.1-nano": { input: 0.1, output: 0.4, cacheRead: 0.025 },
   // GPT-4o series (may be deprecated)
-  "gpt-4o": { input: 2.5, output: 10 },
-  "gpt-4o-mini": { input: 0.15, output: 0.6 },
+  "gpt-4o": { input: 2.5, output: 10, cacheRead: 1.25 },
+  "gpt-4o-mini": { input: 0.15, output: 0.6, cacheRead: 0.075 },
   // Reasoning models
-  "o3": { input: 10, output: 40 },
-  "o3-mini": { input: 1.1, output: 4.4 },
-  "o4-mini": { input: 4, output: 16, cacheRead: 1 },
-  "o1": { input: 15, output: 60 },
-  "o1-mini": { input: 1.1, output: 4.4 },
+  "o3": { input: 2, output: 8, cacheRead: 0.5 },
+  "o3-mini": { input: 1.1, output: 4.4, cacheRead: 0.55 },
+  "o4-mini": { input: 1.1, output: 4.4, cacheRead: 0.275 },
+  "o1": { input: 15, output: 60, cacheRead: 7.5 },
+  "o1-mini": { input: 1.1, output: 4.4, cacheRead: 0.55 },
 
   // DeepSeek (https://api-docs.deepseek.com/quick_start/pricing)
   // DeepSeek-V4 Flash compatibility pricing for deepseek-chat / deepseek-reasoner.
@@ -79,12 +97,18 @@ export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   "deepseek-reasoner": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
 
   // Google Gemini (https://cloud.google.com/vertex-ai/generative-ai/pricing)
-  // Gemini 3 Pro Preview: $2 input, $12 output (≤200K)
+  // Standard global text pricing at <=200K input tokens where tiered pricing applies.
+  // Gemini 3.1 Pro Preview: $2 input, $12 output, cache read $0.20
+  "gemini-3.1-pro-preview": { input: 2, output: 12, cacheRead: 0.2 },
   "gemini-3-pro": { input: 2, output: 12, cacheRead: 0.2 },
   "gemini-3-pro-preview": { input: 2, output: 12, cacheRead: 0.2 },
+  // Gemini 3.5 Flash: $1.50 input, $9 output, cache read $0.15
+  "gemini-3.5-flash": { input: 1.5, output: 9, cacheRead: 0.15 },
   // Gemini 3 Flash Preview: $0.5 input, $3 output
   "gemini-3-flash": { input: 0.5, output: 3, cacheRead: 0.05 },
   "gemini-3-flash-preview": { input: 0.5, output: 3, cacheRead: 0.05 },
+  // Gemini 3.1 Flash-Lite: $0.25 input, $1.50 output, cache read $0.025
+  "gemini-3.1-flash-lite": { input: 0.25, output: 1.5, cacheRead: 0.025 },
   // Gemini 2.5 Pro: $1.25 input, $10 output (≤200K)
   "gemini-2.5-pro": { input: 1.25, output: 10, cacheRead: 0.125 },
   // Gemini 2.5 Flash: $0.3 input, $2.5 output
@@ -695,5 +719,4 @@ export function calculateCost(
   
   return inputCost + outputCost + cacheReadCost + cacheWriteCost
 }
-
 
