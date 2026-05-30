@@ -2,13 +2,33 @@
 
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { TrackerConfig } from "../lib/shared.js"
-import { BUILTIN_PRICING, DEFAULT_CONFIG, formatCost, formatTokens, getStartOfDay, getStartOfMonth, getStartOfWeek, validateConfig, BUILTIN_PRICING_META, resolvePricingStatus, round2 } from "../lib/shared.js"
+import {
+  BUILTIN_PRICING,
+  BUILTIN_PRICING_META,
+  DEFAULT_CONFIG,
+  formatCost,
+  formatLocalDateKey,
+  formatTokens,
+  getStartOfDay,
+  getStartOfMonth,
+  getStartOfWeek,
+  hasBillableTokenUsage,
+  resolvePricingStatus,
+  round2,
+  validateConfig,
+} from "../lib/shared.js"
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
 const LOG_FILE = join(CONFIG_DIR, "logs", "token-tracker", "tokens.jsonl")
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
+const OPENCODE_CONFIG_FILES = [
+  join(CONFIG_DIR, "opencode.json"),
+  join(CONFIG_DIR, "opencode.jsonc"),
+]
 
 // ============================================================================
 // Types
@@ -41,6 +61,11 @@ interface Stats {
   count: number
 }
 
+interface ZeroCostProviderMatch {
+  provider: string
+  reason: string
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -56,6 +81,41 @@ function padLeft(str: string, len: number): string {
 function truncateSessionId(sessionId?: string): string {
   if (!sessionId) return "unknown"
   return sessionId.length > 16 ? `${sessionId.slice(0, 14)}…` : sessionId
+}
+
+function formatAge(ts: number): string {
+  const diffMs = Date.now() - ts
+  if (diffMs < 60_000) return "less than 1m ago"
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+const ZERO_COST_PROVIDER_HINTS: Array<{ match: string; reason: string }> = [
+  { match: "copilot", reason: "subscription/bundled provider" },
+  { match: "cursor", reason: "subscription/bundled provider" },
+  { match: "free", reason: "free provider name" },
+  { match: "ollama", reason: "local/self-hosted provider" },
+  { match: "lmstudio", reason: "local/self-hosted provider" },
+  { match: "lm-studio", reason: "local/self-hosted provider" },
+  { match: "llamacpp", reason: "local/self-hosted provider" },
+  { match: "llama.cpp", reason: "local/self-hosted provider" },
+  { match: "local", reason: "local/self-hosted provider" },
+  { match: "localhost", reason: "local/self-hosted provider" },
+  { match: "self-hosted", reason: "local/self-hosted provider" },
+  { match: "selfhosted", reason: "local/self-hosted provider" },
+]
+
+function getZeroCostProviderMatch(provider: string): ZeroCostProviderMatch | undefined {
+  const normalized = provider.toLowerCase().replace(/\s+/g, "")
+  for (const hint of ZERO_COST_PROVIDER_HINTS) {
+    if (normalized.includes(hint.match)) {
+      return { provider, reason: hint.reason }
+    }
+  }
+  return undefined
 }
 
 // ============================================================================
@@ -99,7 +159,7 @@ function parseArgs(args: string[]): ParsedArgs {
       continue
     }
 
-    if (arg.startsWith("-") && arg.length === 2 && arg !== "--") {
+    if (/^-[A-Za-z]$/.test(arg)) {
       const next = args[i + 1]
       if (next && !next.startsWith("-")) {
         flags.set(arg.slice(1), next)
@@ -172,7 +232,7 @@ function loadEntries(since?: number): TokenEntry[] {
           break
         }
 
-        if (!entry.input && !entry.output) continue
+        if (!hasBillableTokenUsage(entry)) continue
         entries.push(entry)
       } catch {
         // Skip malformed lines
@@ -184,7 +244,7 @@ function loadEntries(since?: number): TokenEntry[] {
   if (!shouldStop && leftover.trim()) {
     try {
       const entry = JSON.parse(leftover.trim()) as TokenEntry
-      if (entry.type === "tokens" && (!since || entry._ts >= since) && (entry.input || entry.output)) {
+      if (entry.type === "tokens" && (!since || entry._ts >= since) && hasBillableTokenUsage(entry)) {
         entries.push(entry)
       }
     } catch {
@@ -314,7 +374,7 @@ function printTable(title: string, groups: Map<string, Stats>, labelHeader: stri
 function printDailyBreakdown(entries: TokenEntry[]) {
   const byDay = groupBy(entries, (e) => {
     const date = new Date(e._ts)
-    return date.toISOString().slice(0, 10)
+    return formatLocalDateKey(date)
   })
 
   const sorted = Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]))
@@ -352,7 +412,51 @@ function printDailyBreakdown(entries: TokenEntry[]) {
 // Commands
 // ============================================================================
 
-function cmdStats(period: string, breakdown?: string) {
+const STATS_BREAKDOWNS = ["model", "agent", "provider", "day", "daily", "session", "all"] as const
+type StatsBreakdown = typeof STATS_BREAKDOWNS[number]
+const STATS_PERIODS = ["today", "week", "month", "all"] as const
+type StatsPeriod = typeof STATS_PERIODS[number]
+
+const TOP_LEVEL_COMMANDS = ["budget", "doctor", "pricing", "models", "config", "export", "trend"] as const
+type TopLevelCommand = typeof TOP_LEVEL_COMMANDS[number]
+
+function isStatsBreakdown(value: string): value is StatsBreakdown {
+  return STATS_BREAKDOWNS.includes(value as StatsBreakdown)
+}
+
+function isStatsPeriod(value: string): value is StatsPeriod {
+  return STATS_PERIODS.includes(value as StatsPeriod)
+}
+
+function isTopLevelCommand(value: string): value is TopLevelCommand {
+  return TOP_LEVEL_COMMANDS.includes(value as TopLevelCommand)
+}
+
+function getStatsBreakdown(flags: Map<string, string | boolean>): StatsBreakdown | undefined {
+  const longValue = flagValue(flags, "by")
+  const shortValue = flagValue(flags, "b")
+
+  if (flags.has("by") && !longValue) {
+    failCli("Missing value for --by", "Usage: opencode-tokens [today|week|month|all] --by model|agent|provider|daily|session|all")
+    return undefined
+  }
+  if (flags.has("b") && !shortValue) {
+    failCli("Missing value for -b", "Usage: opencode-tokens [today|week|month|all] -b model|agent|provider|daily|session|all")
+    return undefined
+  }
+
+  const breakdown = longValue ?? shortValue
+  if (!breakdown) return undefined
+
+  if (!isStatsBreakdown(breakdown)) {
+    failCli(`Unsupported stats breakdown: ${breakdown}`, "Allowed breakdowns: model, agent, provider, daily, day, session, all")
+    return undefined
+  }
+
+  return breakdown
+}
+
+function cmdStats(period: StatsPeriod, breakdown?: StatsBreakdown) {
   const now = new Date()
   let since: number | undefined
   let title: string
@@ -424,13 +528,13 @@ function cmdPricing() {
   
   // Group by provider
   const groups: Record<string, string[]> = {
-    "Anthropic Claude": ["claude-opus-4.6", "claude-opus-4.5", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5", "claude-haiku-4", "claude-opus-4.1", "claude-opus-4", "claude-haiku-3"],
-    "OpenAI": ["gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5.1", "gpt-5", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o3", "o3-mini", "o4-mini", "o1", "o1-mini"],
-    "DeepSeek": ["deepseek-chat", "deepseek-reasoner"],
-    "Google Gemini": ["gemini-3-pro", "gemini-3-pro-preview", "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
+    "Anthropic Claude": ["claude-opus-4.8", "claude-opus-4.7", "claude-opus-4.6", "claude-opus-4.5", "claude-sonnet-4.6", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5", "claude-haiku-4", "claude-opus-4.1", "claude-opus-4", "claude-haiku-3"],
+    "OpenAI": ["gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.4-pro", "gpt-5.3-codex", "gpt-5.3-chat-latest", "gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano", "gpt-5.1", "gpt-5.1-chat-latest", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5", "gpt-5-chat-latest", "gpt-5-codex", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o3", "o3-mini", "o4-mini", "o1", "o1-mini"],
+    "DeepSeek": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"],
+    "Google Gemini": ["gemini-3.1-pro-preview", "gemini-3-pro", "gemini-3-pro-preview", "gemini-3.5-flash", "gemini-3-flash", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
   }
   
-  const modelWidth = 20
+  const modelWidth = 24
   const priceWidth = 10
   
   for (const [group, models] of Object.entries(groups)) {
@@ -512,8 +616,19 @@ function cmdModels() {
   console.log(`  ${padRight("Model", modelWidth)}  ${padRight("Provider", providerWidth)}  ${padLeft("Msgs", countWidth)}  ${padRight("Pricing", statusWidth)}`)
   console.log(`  ${"-".repeat(modelWidth)}  ${"-".repeat(providerWidth)}  ${"-".repeat(countWidth)}  ${"-".repeat(statusWidth)}`)
   
+  const defaultModels: Array<{ model: string; provider: string; count: number }> = []
+  const zeroCostProviderModels: Array<{ model: string; provider: string; count: number; reason: string }> = []
+
   for (const { model, provider, count } of sorted) {
     const status = resolvePricingStatus(config, model, provider)
+    if (status === "default") {
+      const zeroCostMatch = getZeroCostProviderMatch(provider)
+      if (zeroCostMatch) {
+        zeroCostProviderModels.push({ model, provider, count, reason: zeroCostMatch.reason })
+      } else {
+        defaultModels.push({ model, provider, count })
+      }
+    }
     console.log(`  ${padRight(model, modelWidth)}  ${padRight(provider, providerWidth)}  ${padLeft(count.toString(), countWidth)}  ${padRight(status, statusWidth)}`)
   }
   
@@ -524,6 +639,210 @@ function cmdModels() {
   console.log(`    model cfg    = overridden by models config`)
   console.log(`    default      = unknown model, using $1/$4 per 1M tokens`)
   console.log()
+
+  if (zeroCostProviderModels.length > 0 || defaultModels.length > 0) {
+    console.log(`  Next steps for default pricing:`)
+    const total = zeroCostProviderModels.length + defaultModels.length
+    console.log(`    ${total} model/provider ${total === 1 ? "pair uses" : "pairs use"} the default $1/$4 estimate.`)
+    console.log(`    Run: opencode-tokens config init`)
+    console.log(`    Or:  opencode-tokens config generate`)
+    console.log()
+
+    if (zeroCostProviderModels.length > 0) {
+      console.log(`    Likely zero-cost provider overrides to review:`)
+      for (const { provider, reason } of dedupeZeroCostProviderMatches(zeroCostProviderModels).slice(0, 5)) {
+        console.log(`    - ${provider} (${reason}): { "input": 0, "output": 0 }`)
+      }
+      if (zeroCostProviderModels.length > 5) {
+        console.log(`    - ...and ${zeroCostProviderModels.length - 5} more model/provider pairs`)
+      }
+      console.log()
+    }
+
+    if (defaultModels.length > 0) {
+      console.log(`    Model overrides to review before saving:`)
+      for (const { model, provider, count } of defaultModels.slice(0, 5)) {
+        console.log(`    - ${model} (${provider}, ${count} msgs): { "input": 1, "output": 4 }`)
+      }
+      if (defaultModels.length > 5) {
+        console.log(`    - ...and ${defaultModels.length - 5} more`)
+      }
+      console.log()
+    }
+  }
+}
+
+function cmdDoctor() {
+  const entries = loadEntries()
+  const configDiagnostics = inspectTrackerConfig()
+  const pluginDiagnostics = inspectOpenCodePluginConfig()
+
+  console.log(`
+  OpenCode Token Tracker Doctor
+  ══════════════════════════════════════════════════════════════════
+`)
+
+  console.log(`  CLI`)
+  console.log(`    Entry: ${process.argv[1] ?? "unknown"}`)
+  console.log(`    Package version: ${readPackageJsonVersion()}`)
+  console.log()
+
+  console.log(`  OpenCode plugin config`)
+  if (pluginDiagnostics.found) {
+    console.log(`    File: ${pluginDiagnostics.path}`)
+    console.log(`    Plugin entry: ${pluginDiagnostics.hasPlugin ? "found" : "missing"}`)
+  } else {
+    console.log(`    File: not found (${OPENCODE_CONFIG_FILES.map((p) => p.replace(`${homedir()}/`, "~/")).join(" or ")})`)
+    console.log(`    Plugin entry: unknown`)
+  }
+  console.log()
+
+  console.log(`  Tracker config`)
+  console.log(`    File: ${CONFIG_FILE}`)
+  console.log(`    Status: ${configDiagnostics.exists ? "exists" : "using defaults"}`)
+  if (configDiagnostics.parseError) {
+    console.log(`    Warning: ${configDiagnostics.parseError}`)
+  }
+  for (const warning of configDiagnostics.warnings) {
+    console.log(`    Warning: ${warning}`)
+  }
+  const budget = configDiagnostics.config.budget
+  const hasBudget = Boolean(budget.daily || budget.weekly || budget.monthly)
+  console.log(`    Budget: ${hasBudget ? "configured" : "not configured"}`)
+  console.log()
+
+  console.log(`  Token log`)
+  if (!existsSync(LOG_FILE)) {
+    console.log(`    File: not found (${LOG_FILE})`)
+    console.log(`    Entries: 0`)
+  } else {
+    const latest = entries[entries.length - 1]
+    console.log(`    File: ${LOG_FILE}`)
+    console.log(`    Entries: ${entries.length}`)
+    console.log(`    Latest: ${latest ? `${new Date(latest._ts).toISOString()} (${formatAge(latest._ts)})` : "none"}`)
+  }
+  console.log()
+
+  const defaultModels = getDefaultModelProviders(entries, configDiagnostics.config)
+  const zeroCostProviders = dedupeZeroCostProviderMatches(
+    defaultModels.flatMap(({ model, provider, count }) => {
+      const match = getZeroCostProviderMatch(provider)
+      return match ? [{ model, provider, count, reason: match.reason }] : []
+    })
+  )
+  console.log(`  Pricing`)
+  console.log(`    Built-in pricing updated: ${BUILTIN_PRICING_META.pricingLastUpdated}`)
+  console.log(`    Default-priced model/provider pairs: ${defaultModels.length}`)
+  for (const { model, provider, count } of defaultModels.slice(0, 5)) {
+    console.log(`    - ${model} (${provider}, ${count} msgs)`)
+  }
+  if (defaultModels.length > 5) {
+    console.log(`    - ...and ${defaultModels.length - 5} more`)
+  }
+  if (zeroCostProviders.length > 0) {
+    console.log(`    Likely zero-cost providers:`)
+    for (const { provider, reason } of zeroCostProviders.slice(0, 5)) {
+      console.log(`    - ${provider} (${reason})`)
+    }
+  }
+  console.log()
+
+  const nextSteps: string[] = []
+  if (!pluginDiagnostics.found || !pluginDiagnostics.hasPlugin) {
+    nextSteps.push(`Add "opencode-token-tracker" to your OpenCode plugin config.`)
+  }
+  if (!existsSync(LOG_FILE) || entries.length === 0) {
+    nextSteps.push(`Run an OpenCode request, then check ${LOG_FILE}.`)
+  }
+  if (configDiagnostics.parseError || configDiagnostics.warnings.length > 0) {
+    nextSteps.push(`Fix ${CONFIG_FILE} or regenerate it with: opencode-tokens config generate`)
+  }
+  if (defaultModels.length > 0) {
+    nextSteps.push(`Review default pricing with: opencode-tokens models`)
+    nextSteps.push(`Generate suggested overrides with: opencode-tokens config init`)
+  }
+  if (!hasBudget) {
+    nextSteps.push(`Configure optional budgets with: opencode-tokens config init`)
+  }
+
+  console.log(`  Next steps`)
+  if (nextSteps.length === 0) {
+    console.log(`    No obvious issues found.`)
+  } else {
+    for (const step of nextSteps) {
+      console.log(`    - ${step}`)
+    }
+  }
+  console.log()
+}
+
+function readPackageJsonVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf-8")) as { version?: unknown }
+    return typeof pkg.version === "string" ? pkg.version : "unknown"
+  } catch {
+    return "unknown"
+  }
+}
+
+function inspectOpenCodePluginConfig(): { found: boolean; path?: string; hasPlugin: boolean } {
+  for (const path of OPENCODE_CONFIG_FILES) {
+    if (!existsSync(path)) continue
+    const raw = readFileSync(path, "utf-8")
+    return {
+      found: true,
+      path,
+      hasPlugin: raw.includes("opencode-token-tracker"),
+    }
+  }
+  return { found: false, hasPlugin: false }
+}
+
+function inspectTrackerConfig(): { exists: boolean; config: TrackerConfig; warnings: string[]; parseError?: string } {
+  if (!existsSync(CONFIG_FILE)) {
+    return { exists: false, config: DEFAULT_CONFIG, warnings: [] }
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+    const result = validateConfig(raw)
+    return { exists: true, config: result.config, warnings: result.warnings }
+  } catch {
+    return { exists: true, config: DEFAULT_CONFIG, warnings: [], parseError: "Config file is not valid JSON, using defaults" }
+  }
+}
+
+function getDefaultModelProviders(entries: TokenEntry[], config: TrackerConfig): Array<{ model: string; provider: string; count: number }> {
+  const counts = new Map<string, { model: string; provider: string; count: number; lastUsed: number }>()
+  for (const e of entries) {
+    const model = e.model ?? "unknown"
+    const provider = e.provider ?? "unknown"
+    if (model === "unknown" || provider === "unknown") continue
+    const key = `${model}|${provider}`
+    let item = counts.get(key)
+    if (!item) {
+      item = { model, provider, count: 0, lastUsed: 0 }
+      counts.set(key, item)
+    }
+    item.count++
+    item.lastUsed = Math.max(item.lastUsed, e._ts)
+  }
+
+  return Array.from(counts.values())
+    .filter(({ model, provider }) => resolvePricingStatus(config, model, provider) === "default")
+    .sort((a, b) => b.lastUsed - a.lastUsed)
+}
+
+function dedupeZeroCostProviderMatches(
+  items: Array<{ provider: string; reason: string }>,
+): ZeroCostProviderMatch[] {
+  const providers = new Map<string, ZeroCostProviderMatch>()
+  for (const item of items) {
+    if (!providers.has(item.provider)) {
+      providers.set(item.provider, { provider: item.provider, reason: item.reason })
+    }
+  }
+  return Array.from(providers.values())
 }
 
 function cmdConfig(positional: string[]) {
@@ -570,13 +889,15 @@ function cmdConfig(positional: string[]) {
       },
     }
     
-    const suggestedProviders: string[] = []
-    // Add providers as comments/examples (Common free providers)
+    const suggestedProviders: ZeroCostProviderMatch[] = []
+    const suggestedProviderNames = new Set<string>()
+    // Add likely zero-cost providers detected from logs.
     for (const provider of providers) {
-      const pLower = provider.toLowerCase()
-      if (pLower.includes("copilot") || pLower.includes("cursor") || pLower.includes("free")) {
+      const zeroCostMatch = getZeroCostProviderMatch(provider)
+      if (zeroCostMatch) {
         exampleConfig.providers[provider] = { input: 0, output: 0 }
-        suggestedProviders.push(provider)
+        suggestedProviders.push(zeroCostMatch)
+        suggestedProviderNames.add(provider)
       }
     }
     
@@ -585,6 +906,7 @@ function cmdConfig(positional: string[]) {
     for (const mp of modelProviders) {
       const [model, provider] = mp.split("|")
       if (model === "unknown" || provider === "unknown") continue
+      if (suggestedProviderNames.has(provider)) continue
       const status = resolvePricingStatus(config, model, provider)
       if (status === "default") {
         exampleConfig.models[model] = { input: 1, output: 4 }
@@ -617,10 +939,10 @@ function cmdConfig(positional: string[]) {
 
     if (suggestedProviders.length > 0) {
       suggestionsSummary += `
-  Detected zero-cost/subscription providers:
+  Detected likely zero-cost providers:
 `
-      for (const p of suggestedProviders) {
-        suggestionsSummary += `    • ${p} (automatically pre-configured to $0.00)\n`
+      for (const { provider, reason } of suggestedProviders) {
+        suggestionsSummary += `    • ${provider} (${reason}, automatically pre-configured to $0.00)\n`
       }
     }
 
@@ -650,11 +972,11 @@ function cmdConfig(positional: string[]) {
 
   Examples:
     { "input": 15, "output": 75 }     = $15 per 1M input, $75 per 1M output
-    { "input": 0, "output": 0 }       = Free (subscription or local model)
+    { "input": 0, "output": 0 }       = Free (subscription or local provider/model)
 
   Common scenarios:
     - GitHub Copilot, Cursor, etc.   → Set provider to { input: 0, output: 0 }
-    - Local/self-hosted models       → Set to 0
+    - Ollama, LM Studio, localhost   → Set provider to { input: 0, output: 0 }
     - Direct API usage               → Look up provider's pricing page
 
   Where to find pricing:
@@ -702,9 +1024,12 @@ function cmdConfig(positional: string[]) {
 
   if (action === "get") {
     const key = positional[2]
-    if (!key) { console.log("\n  Usage: opencode-tokens config get <key>\n"); return }
+    if (!key) {
+      failCli("Missing config key", "Usage: opencode-tokens config get <key>")
+      return
+    }
     if (!SETTABLE_KEYS[key]) {
-      console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`)
+      failCli(`Unknown config key: ${key}`, `Available keys: ${Object.keys(SETTABLE_KEYS).join(", ")}`)
       return
     }
     const value = resolveConfigKey(config, key)
@@ -715,17 +1040,33 @@ function cmdConfig(positional: string[]) {
   if (action === "set") {
     const key = positional[2]
     const rawValue = positional[3]
-    if (!key || !rawValue) { console.log("\n  Usage: opencode-tokens config set <key> <value>\n"); return }
+    if (!key) {
+      failCli("Missing config key", "Usage: opencode-tokens config set <key> <value>")
+      return
+    }
+    if (!rawValue) {
+      failCli("Missing config value", "Usage: opencode-tokens config set <key> <value>")
+      return
+    }
     const spec = SETTABLE_KEYS[key]
-    if (!spec) { console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`); return }
+    if (!spec) {
+      failCli(`Unknown config key: ${key}`, `Available keys: ${Object.keys(SETTABLE_KEYS).join(", ")}`)
+      return
+    }
     const value = parseConfigValue(rawValue)
     if (typeof value !== spec.type) {
-      console.log(`\n  Invalid type: expected ${spec.type}, got ${typeof value}\n`)
+      failCli(`Invalid type for ${key}: expected ${spec.type}, got ${typeof value}`)
       return
     }
     if (typeof value === "number") {
-      if (value < 0) { console.log(`\n  Value must be >= 0\n`); return }
-      if (spec.max !== undefined && value > spec.max) { console.log(`\n  Value must be <= ${spec.max}\n`); return }
+      if (value < 0) {
+        failCli(`Invalid value for ${key}: must be >= 0`)
+        return
+      }
+      if (spec.max !== undefined && value > spec.max) {
+        failCli(`Invalid value for ${key}: must be <= ${spec.max}`)
+        return
+      }
     }
     applyConfigSet(key, value)
     console.log(`\n  Set ${key} = ${JSON.stringify(value)}\n`)
@@ -734,17 +1075,22 @@ function cmdConfig(positional: string[]) {
 
   if (action === "unset") {
     const key = positional[2]
-    if (!key) { console.log("\n  Usage: opencode-tokens config unset <key>\n"); return }
+    if (!key) {
+      failCli("Missing config key", "Usage: opencode-tokens config unset <key>")
+      return
+    }
     const spec = SETTABLE_KEYS[key]
-    if (!spec) { console.log(`\n  Unknown key: ${key}\n  Available: ${Object.keys(SETTABLE_KEYS).join(", ")}\n`); return }
+    if (!spec) {
+      failCli(`Unknown config key: ${key}`, `Available keys: ${Object.keys(SETTABLE_KEYS).join(", ")}`)
+      return
+    }
     applyConfigUnset(key)
     console.log(`\n  Unset ${key} (reverted to default)\n`)
     return
   }
 
   if (action && action !== "show") {
-    console.log(`\n  Unknown config action: ${action}`)
-    console.log(`  Usage: opencode-tokens config [show|init|generate|get|set|unset]\n`)
+    failCli(`Unknown config action: ${action}`, "Usage: opencode-tokens config [show|init|generate|get|set|unset]")
     return
   }
 
@@ -862,10 +1208,55 @@ function saveConfig(raw: TrackerConfig | Record<string, unknown>): void {
 // Export
 // ============================================================================
 
+const EXPORT_FORMATS = ["csv", "json"] as const
+const EXPORT_PERIODS = ["today", "week", "month", "all"] as const
+
+function failCli(message: string, usage?: string): void {
+  process.stderr.write(`\n  Error: ${message}\n`)
+  if (usage) {
+    process.stderr.write(`  ${usage}\n`)
+  }
+  process.stderr.write("\n")
+  process.exitCode = 1
+}
+
+function isExportFormat(format: string): format is typeof EXPORT_FORMATS[number] {
+  return EXPORT_FORMATS.includes(format as typeof EXPORT_FORMATS[number])
+}
+
+function isExportPeriod(period: string): period is typeof EXPORT_PERIODS[number] {
+  return EXPORT_PERIODS.includes(period as typeof EXPORT_PERIODS[number])
+}
+
 function cmdExport(flags: Map<string, string | boolean>) {
-  const format = flagValue(flags, "format") || "csv"
-  const period = flagValue(flags, "period") || "all"
+  const formatValue = flagValue(flags, "format")
+  const periodValue = flagValue(flags, "period")
   const outputFile = flagValue(flags, "output")
+
+  if (flags.has("format") && !formatValue) {
+    failCli("Missing value for --format", "Usage: opencode-tokens export --format csv|json")
+    return
+  }
+  if (flags.has("period") && !periodValue) {
+    failCli("Missing value for --period", "Usage: opencode-tokens export --period today|week|month|all")
+    return
+  }
+  if (flags.has("output") && !outputFile) {
+    failCli("Missing value for --output", "Usage: opencode-tokens export --output <file>")
+    return
+  }
+
+  const format = formatValue ?? "csv"
+  const period = periodValue ?? "all"
+
+  if (!isExportFormat(format)) {
+    failCli(`Unsupported export format: ${format}`, "Allowed formats: csv, json")
+    return
+  }
+  if (!isExportPeriod(period)) {
+    failCli(`Unsupported export period: ${period}`, "Allowed periods: today, week, month, all")
+    return
+  }
 
   const now = new Date()
   let since: number | undefined
@@ -907,7 +1298,13 @@ function cmdExport(flags: Map<string, string | boolean>) {
   }
 
   if (outputFile) {
-    writeFileSync(outputFile, output)
+    try {
+      writeFileSync(outputFile, output)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      failCli(`Failed to write export file: ${detail}`)
+      return
+    }
     console.log(`\n  Exported ${entries.length} entries to ${outputFile}\n`)
   } else {
     process.stdout.write(output)
@@ -1040,6 +1437,7 @@ function cmdHelp() {
   Commands:
     (default)     Show usage statistics
     budget        Show budget status (daily/weekly/monthly)
+    doctor        Diagnose plugin config, logs, and pricing fallbacks
     pricing       Show built-in pricing table
     models        Show your used models and their pricing status
     config        Show/generate/modify configuration
@@ -1078,6 +1476,7 @@ function cmdHelp() {
 
   Examples:
     opencode-tokens                       # All-time summary
+    opencode-tokens doctor                # Diagnose setup and logs
     opencode-tokens today --by model      # Today by model
     opencode-tokens week --by session     # This week by session
     opencode-tokens trend --days 7        # 7-day cost trend
@@ -1099,26 +1498,60 @@ interface TrendPoint {
   messages: number
 }
 
+const TREND_METRICS = ["cost", "tokens", "messages"] as const
+type TrendMetric = typeof TREND_METRICS[number]
+
 interface ChartPoint {
   x: number
   y: number
 }
 
-function getTrendValue(point: TrendPoint, metric: string): number {
+function isTrendMetric(metric: string): metric is TrendMetric {
+  return TREND_METRICS.includes(metric as TrendMetric)
+}
+
+function getTrendValue(point: TrendPoint, metric: TrendMetric): number {
   return metric === "tokens" ? point.tokens : metric === "messages" ? point.messages : point.cost
 }
 
-function formatTrendValue(value: number, metric: string): string {
+function formatTrendValue(value: number, metric: TrendMetric): string {
   return metric === "tokens" ? formatTokens(value) : metric === "messages" ? String(Math.round(value)) : formatCost(value)
 }
 
-function formatSignedTrendValue(value: number, metric: string): string {
+function formatSignedTrendValue(value: number, metric: TrendMetric): string {
   const sign = value > 0 ? "+" : value < 0 ? "-" : ""
   return `${sign}${formatTrendValue(Math.abs(value), metric)}`
 }
 
-function metricLabel(metric: string): string {
+function metricLabel(metric: TrendMetric): string {
   return metric === "tokens" ? "Token Trend" : metric === "messages" ? "Message Trend" : "Cost Trend"
+}
+
+function parsePositiveIntegerOption(
+  flags: Map<string, string | boolean>,
+  name: string,
+  defaultValue: number,
+  usage: string,
+): number | undefined {
+  const value = flagValue(flags, name)
+  if (flags.has(name) && !value) {
+    failCli(`Missing value for --${name}`, usage)
+    return undefined
+  }
+  if (!value) return defaultValue
+
+  if (!/^\d+$/.test(value)) {
+    failCli(`Invalid value for --${name}: ${value}`, usage)
+    return undefined
+  }
+
+  const parsed = Number.parseInt(value, 10)
+  if (parsed <= 0) {
+    failCli(`Invalid value for --${name}: ${value}`, usage)
+    return undefined
+  }
+
+  return parsed
 }
 
 function buildLineRows(points: ChartPoint[], width: number, height: number): string[][] {
@@ -1243,9 +1676,22 @@ function buildTrendXAxis(points: Array<[number, TrendPoint]>, chartPoints: Chart
 }
 
 function cmdTrend(flags: Map<string, string | boolean>) {
-  const days = parseInt(String(flagValue(flags, "days") ?? "30"), 10)
-  const metric = flagValue(flags, "metric") ?? "cost"
-  const width = parseInt(String(flagValue(flags, "width") ?? "60"), 10)
+  const days = parsePositiveIntegerOption(flags, "days", 30, "Usage: opencode-tokens trend --days <positive-integer>")
+  if (days === undefined) return
+
+  const metricValue = flagValue(flags, "metric")
+  if (flags.has("metric") && !metricValue) {
+    failCli("Missing value for --metric", "Usage: opencode-tokens trend --metric cost|tokens|messages")
+    return
+  }
+  const metric = metricValue ?? "cost"
+  if (!isTrendMetric(metric)) {
+    failCli(`Unsupported trend metric: ${metric}`, "Allowed metrics: cost, tokens, messages")
+    return
+  }
+
+  const width = parsePositiveIntegerOption(flags, "width", 60, "Usage: opencode-tokens trend --width <positive-integer>")
+  if (width === undefined) return
 
   const since = getStartOfDay(new Date(Date.now() - days * 86400000))
   const entries = loadEntries(since)
@@ -1379,9 +1825,12 @@ function main() {
 
   const { command } = parsed
 
-  switch (command) {
+  if (isTopLevelCommand(command)) switch (command) {
     case "budget":
       cmdBudget()
+      return
+    case "doctor":
+      cmdDoctor()
       return
     case "pricing":
       cmdPricing()
@@ -1401,12 +1850,21 @@ function main() {
   }
 
   // Default: stats
-  let period = "all"
-  const breakdown = flagValue(parsed.flags, "by") || (parsed.flags.has("b") ? String(parsed.flags.get("b")) : undefined)
-  for (const p of ["today", "week", "month", "all"]) {
-    if (parsed.positional.includes(p)) {
-      period = p
-      break
+  let period: StatsPeriod = "all"
+  const breakdown = getStatsBreakdown(parsed.flags)
+  if (process.exitCode) return
+
+  if (command) {
+    if (!isStatsPeriod(command)) {
+      failCli(`Unknown command or stats period: ${command}`, "Usage: opencode-tokens [today|week|month|all] [--by model|agent|provider|daily|session|all]")
+      return
+    }
+    period = command
+
+    const extraArgs = parsed.positional.slice(1)
+    if (extraArgs.length > 0) {
+      failCli(`Unexpected argument for stats command: ${extraArgs[0]}`, "Usage: opencode-tokens [today|week|month|all] [--by model|agent|provider|daily|session|all]")
+      return
     }
   }
 

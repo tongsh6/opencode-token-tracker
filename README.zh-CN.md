@@ -274,6 +274,9 @@ opencode-tokens config unset budget.daily
 # 查看预算状态
 opencode-tokens budget
 
+# 诊断插件配置、日志与默认定价回退
+opencode-tokens doctor
+
 # 查看内置定价表
 opencode-tokens pricing
 
@@ -306,7 +309,10 @@ opencode-tokens config generate
 - 定价来源是内置表、用户配置还是默认回退
 - 需要在配置文件中补充哪些模型定价
 
-`config init` 适合管道重定向，因为 stdout 只包含合法 JSON，且不会写文件。`config generate` 是写文件路径：stdout 保持为空，说明和状态信息输出到 stderr；父目录不存在时会自动创建，覆盖已有配置前会先备份。
+`config init` 适合管道重定向，因为 stdout 只包含合法 JSON，且不会写文件。`config generate` 是写文件路径：stdout 保持为空，说明和状态信息输出到 stderr；父目录不存在时会自动创建，覆盖已有配置前会先备份。两个命令都会读取本地日志，并为 GitHub Copilot、Cursor、Ollama 这类疑似零成本 provider 预填覆盖配置。
+
+`doctor` 是只读诊断命令，会检查 OpenCode 插件入口、tracker 配置、token log、
+最新记录、默认定价回退模型，并给出下一步应该运行的命令。
 
 ## 日志文件
 
@@ -398,8 +404,9 @@ token 记录保存在：
 
 | 场景 | 配置 |
 | --- | --- |
-| 订阅制服务（GitHub Copilot、Cursor） | `{ "input": 0, "output": 0 }` |
-| 免费/本地模型 | `{ "input": 0, "output": 0 }` |
+| 订阅制服务（GitHub Copilot、Cursor） | Provider 覆盖：`{ "input": 0, "output": 0 }` |
+| 免费/本地 provider（Ollama、LM Studio、localhost） | Provider 覆盖：`{ "input": 0, "output": 0 }` |
+| 付费 provider 下的免费/本地模型 | Model 覆盖：`{ "input": 0, "output": 0 }` |
 | 自定义 API（已知定价） | 查看 provider 官方定价页 |
 
 ### 定价优先级
@@ -417,13 +424,14 @@ token 记录保存在：
 
 #### 示例：免费 provider
 
-使用 GitHub Copilot 等订阅制服务时，将成本设为 $0：
+使用 GitHub Copilot、Ollama、LM Studio 等订阅制或本地 provider 时，将 provider 成本设为 $0：
 
 ```json
 {
   "providers": {
     "github-copilot": { "input": 0, "output": 0 },
-    "cursor": { "input": 0, "output": 0 }
+    "cursor": { "input": 0, "output": 0 },
+    "ollama": { "input": 0, "output": 0 }
   }
 }
 ```

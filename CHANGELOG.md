@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [1.7.1] - 2026-05-30
+
+### Fixed
+
+- (#80) Fixed `opencode-tokens --by daily` grouping rows by UTC date while `today`, `week`, `month`, and budget periods use local natural date boundaries.
+- Fixed CLI log loading so cache-only token records are included in stats, budget checks, exports, trends, model diagnostics, and configuration suggestions.
+
+### Internal
+
+- Added shared token-usage validation for plugin runtime and CLI ingestion so `input`, `output`, `cacheRead`, and `cacheWrite` use one billable-entry contract.
+
 ## [1.7.0] - 2026-05-24
 
 ### Added

@@ -74,9 +74,14 @@ opencode-tokens today --by model
 
 # 查看模型定价来源
 opencode-tokens models
+
+# 诊断插件配置、日志与默认定价回退
+opencode-tokens doctor
 ```
 
 `models` 命令会显示每个模型当前使用的是 provider 覆盖、用户配置、内置价格，还是默认 fallback。
+如果 fallback 来自 Ollama、LM Studio 等疑似本地 provider，命令会优先提示 provider 级零成本覆盖。
+`doctor` 命令是只读检查，用于确认插件配置、token log、tracker 配置、疑似零成本 provider 和 default pricing 下一步。
 
 ## 4. 生成配置
 
@@ -94,7 +99,7 @@ opencode-tokens config init
 opencode-tokens config generate
 ```
 
-`config generate` 会写入 `~/.config/opencode/token-tracker.json`，stdout 保持为空，说明信息走 stderr；已有配置会先备份到 `token-tracker.json.bak`。
+`config generate` 会写入 `~/.config/opencode/token-tracker.json`，stdout 保持为空，说明信息走 stderr；已有配置会先备份到 `token-tracker.json.bak`。生成内容会基于本地日志预填预算、疑似零成本 provider 和仍需人工核对的 fallback model。
 
 ## 5. 设置预算
 
