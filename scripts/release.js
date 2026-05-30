@@ -73,7 +73,22 @@ function requireBranch(expected) {
 }
 
 function getPorcelainStatus() {
-  return output('git', ['status', '--porcelain']);
+  const result = spawnSync('git', ['status', '--porcelain'], {
+    cwd: WORKSPACE_DIR,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  if (result.error) {
+    fail(`git status --porcelain failed: ${result.error.message}`);
+  }
+
+  if (result.status !== 0) {
+    const stderr = result.stderr?.trim();
+    fail(stderr || `git status --porcelain exited with ${result.status}`);
+  }
+
+  return result.stdout.replace(/\n$/, '');
 }
 
 function requireCleanWorktree() {
