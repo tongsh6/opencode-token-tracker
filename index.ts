@@ -1,6 +1,20 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import type { ModelPricing, TrackerConfig, BudgetStatus, BudgetSpentSnapshot } from "./lib/shared.js"
-import { BUILTIN_PRICING, DEFAULT_CONFIG, findModelConfigPricing, formatCost, formatTokens, getStartOfDay, getStartOfWeek, getStartOfMonth, validateConfig, evaluateBudgetStatus, getProviderFamily, calculateCost } from "./lib/shared.js"
+import {
+  BUILTIN_PRICING,
+  DEFAULT_CONFIG,
+  calculateCost,
+  evaluateBudgetStatus,
+  findModelConfigPricing,
+  formatCost,
+  formatTokens,
+  getProviderFamily,
+  getStartOfDay,
+  getStartOfMonth,
+  getStartOfWeek,
+  hasBillableTokenUsage,
+  validateConfig,
+} from "./lib/shared.js"
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs"
 import { open, type FileHandle } from "fs/promises"
 import { join } from "path"
@@ -469,8 +483,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             const cacheRead = info.tokens.cache?.read ?? 0
             const cacheWrite = info.tokens.cache?.write ?? 0
 
-            const hasTokens = input > 0 || output > 0 || cacheRead > 0 || cacheWrite > 0
-            if (!hasTokens) return
+            if (!hasBillableTokenUsage({ input, output, cacheRead, cacheWrite })) return
 
             const dedupeKey = `${messageId}-${input}-${output}-${cacheRead}-${cacheWrite}`
             if (isDuplicate(dedupeKey)) return

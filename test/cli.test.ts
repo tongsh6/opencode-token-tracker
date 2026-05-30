@@ -21,11 +21,11 @@ after(() => {
   }
 })
 
-function run(args: string[]) {
+function run(args: string[], env: Record<string, string> = {}) {
   return spawnSync("node", [CLI, ...args], {
     encoding: "utf-8",
     timeout: 10000,
-    env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome }
+    env: { ...process.env, ...env, HOME: tmpHome, USERPROFILE: tmpHome }
   })
 }
 
@@ -44,6 +44,80 @@ describe("CLI help and stats", () => {
     const res = run(["--by", "session"])
     assert.equal(res.status, 0)
     assert.ok(res.stdout.includes("By Session") || res.stdout.includes("No data"))
+  })
+
+  it("should group daily breakdown by local date", () => {
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const entries = [
+      {
+        type: "tokens",
+        _ts: Date.parse("2026-05-29T01:00:00.000Z"),
+        input: 500,
+        output: 0,
+        cost: 0.5,
+        provider: "openai",
+        model: "gpt-4o",
+      },
+      {
+        type: "tokens",
+        _ts: Date.parse("2026-05-29T16:30:00.000Z"),
+        input: 1000,
+        output: 0,
+        cost: 1,
+        provider: "openai",
+        model: "gpt-4o",
+      },
+      {
+        type: "tokens",
+        _ts: Date.parse("2026-05-30T01:00:00.000Z"),
+        input: 2000,
+        output: 0,
+        cost: 2,
+        provider: "openai",
+        model: "gpt-4o",
+      },
+    ]
+    writeFileSync(logsFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`)
+
+    try {
+      const res = run(["--by", "daily"], { TZ: "Asia/Shanghai" })
+      assert.equal(res.status, 0)
+      assert.match(res.stdout, /2026-05-30\s+3\.0K\s+\$3\.00\s+2/)
+      assert.match(res.stdout, /2026-05-29\s+500\s+\$0\.500\s+1/)
+    } finally {
+      rmSync(logsFile, { force: true })
+    }
+  })
+
+  it("should include cache-only entries in stats", () => {
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const entry = {
+      type: "tokens",
+      _ts: Date.now(),
+      input: 0,
+      output: 0,
+      cacheRead: 1234,
+      cacheWrite: 456,
+      cost: 0.123,
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    }
+    writeFileSync(logsFile, `${JSON.stringify(entry)}\n`)
+
+    try {
+      const res = run(["today"])
+      assert.equal(res.status, 0)
+      assert.match(res.stdout, /Total Tokens:\s+0/)
+      assert.match(res.stdout, /Cache Read:\s+1\.2K/)
+      assert.match(res.stdout, /Total Cost:\s+\$0\.123/)
+      assert.match(res.stdout, /Messages:\s+1/)
+    } finally {
+      rmSync(logsFile, { force: true })
+    }
   })
 
   it("should reject unknown top-level commands and stats arguments", () => {

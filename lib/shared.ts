@@ -13,6 +13,13 @@ export interface ModelPricing {
   cacheWrite?: number // per 1M cache write tokens
 }
 
+export interface BillableTokenUsage {
+  input?: number
+  output?: number
+  cacheRead?: number
+  cacheWrite?: number
+}
+
 export interface ProviderModelPricingMap {
   [provider: string]: ModelPricing
 }
@@ -148,6 +155,13 @@ export function formatTokens(tokens: number, millionDecimals: number = 1): strin
   return tokens.toString()
 }
 
+export function hasBillableTokenUsage(usage: BillableTokenUsage): boolean {
+  return (usage.input ?? 0) > 0
+    || (usage.output ?? 0) > 0
+    || (usage.cacheRead ?? 0) > 0
+    || (usage.cacheWrite ?? 0) > 0
+}
+
 // ============================================================================
 // Time Utilities
 // ============================================================================
@@ -156,6 +170,13 @@ export function getStartOfDay(date: Date = new Date()): number {
   const d = new Date(date)
   d.setHours(0, 0, 0, 0)
   return d.getTime()
+}
+
+export function formatLocalDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
 export function getStartOfWeek(date: Date = new Date()): number {

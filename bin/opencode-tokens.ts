@@ -5,7 +5,21 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { TrackerConfig } from "../lib/shared.js"
-import { BUILTIN_PRICING, DEFAULT_CONFIG, formatCost, formatTokens, getStartOfDay, getStartOfMonth, getStartOfWeek, validateConfig, BUILTIN_PRICING_META, resolvePricingStatus, round2 } from "../lib/shared.js"
+import {
+  BUILTIN_PRICING,
+  BUILTIN_PRICING_META,
+  DEFAULT_CONFIG,
+  formatCost,
+  formatLocalDateKey,
+  formatTokens,
+  getStartOfDay,
+  getStartOfMonth,
+  getStartOfWeek,
+  hasBillableTokenUsage,
+  resolvePricingStatus,
+  round2,
+  validateConfig,
+} from "../lib/shared.js"
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
@@ -218,7 +232,7 @@ function loadEntries(since?: number): TokenEntry[] {
           break
         }
 
-        if (!entry.input && !entry.output) continue
+        if (!hasBillableTokenUsage(entry)) continue
         entries.push(entry)
       } catch {
         // Skip malformed lines
@@ -230,7 +244,7 @@ function loadEntries(since?: number): TokenEntry[] {
   if (!shouldStop && leftover.trim()) {
     try {
       const entry = JSON.parse(leftover.trim()) as TokenEntry
-      if (entry.type === "tokens" && (!since || entry._ts >= since) && (entry.input || entry.output)) {
+      if (entry.type === "tokens" && (!since || entry._ts >= since) && hasBillableTokenUsage(entry)) {
         entries.push(entry)
       }
     } catch {
@@ -360,7 +374,7 @@ function printTable(title: string, groups: Map<string, Stats>, labelHeader: stri
 function printDailyBreakdown(entries: TokenEntry[]) {
   const byDay = groupBy(entries, (e) => {
     const date = new Date(e._ts)
-    return date.toISOString().slice(0, 10)
+    return formatLocalDateKey(date)
   })
 
   const sorted = Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]))

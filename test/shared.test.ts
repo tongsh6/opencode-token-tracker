@@ -14,6 +14,7 @@ import {
   resolvePricingStatus,
   getProviderFamily,
   calculateCost,
+  hasBillableTokenUsage,
 } from "../lib/shared.js"
 
 
@@ -67,6 +68,22 @@ describe("formatTokens", () => {
     assert.equal(formatTokens(1_234_567, 0), "1M")
     assert.equal(formatTokens(1_234_567, 2), "1.23M")
     assert.equal(formatTokens(1_234_567, 3), "1.235M")
+  })
+})
+
+// ============================================================================
+// hasBillableTokenUsage
+// ============================================================================
+
+describe("hasBillableTokenUsage", () => {
+  it("should accept cache-only token records", () => {
+    assert.equal(hasBillableTokenUsage({ cacheRead: 1 }), true)
+    assert.equal(hasBillableTokenUsage({ cacheWrite: 1 }), true)
+  })
+
+  it("should reject records without billable token fields", () => {
+    assert.equal(hasBillableTokenUsage({}), false)
+    assert.equal(hasBillableTokenUsage({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }), false)
   })
 })
 
