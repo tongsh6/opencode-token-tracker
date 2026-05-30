@@ -8,14 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.7.1] - 2026-05-30
 
+### Added
+
+- Added `opencode-tokens doctor`, a read-only setup diagnostic covering the OpenCode plugin entry, tracker config, token log, latest log record, default-priced models, and next-step guidance.
+- Added actionable `opencode-tokens models` next steps for default-priced models and local/subscription providers, including direct guidance to run `opencode-tokens config generate`.
+- Added log-aware `config init` / `config generate` suggestions for zero-cost local providers and subscription providers such as GitHub Copilot, Cursor, Ollama, LM Studio, and localhost.
+- Added 2026-05-29 pricing audit context and refreshed built-in model pricing metadata.
+
+### Changed
+
+- Improved CLI pricing visibility so users can distinguish built-in pricing, provider overrides, model overrides, and default fallback pricing more easily.
+- Aligned release workflow documentation with the staged `release:check` -> `release:prepare` -> `release:tag` process.
+
 ### Fixed
 
 - (#80) Fixed `opencode-tokens --by daily` grouping rows by UTC date while `today`, `week`, `month`, and budget periods use local natural date boundaries.
 - Fixed CLI log loading so cache-only token records are included in stats, budget checks, exports, trends, model diagnostics, and configuration suggestions.
+- Fixed DeepSeek V4 Pro pricing coverage and refreshed related CLI pricing output.
+- Fixed invalid CLI option handling for export, trend, stats breakdowns, config commands, and unknown top-level commands so failures exit non-zero with actionable usage text.
+
+### Documentation
+
+- Clarified that OpenCode plugin auto-install does not put the `opencode-tokens` CLI binary on the shell `PATH`, and documented `npx` / `npm exec` usage for occasional CLI runs.
+- Expanded walkthrough and context documentation for real OpenCode CLI dogfood, pricing audit evidence, and release-flow handoff.
 
 ### Internal
 
 - Added shared token-usage validation for plugin runtime and CLI ingestion so `input`, `output`, `cacheRead`, and `cacheWrite` use one billable-entry contract.
+- Added and hardened the staged release controller around local checks, metadata preparation, clean `main` tagging, and GitHub Actions publish handoff.
+- Fixed release controller `git status --porcelain` parsing so clean release metadata staging is not rejected when status lines start with a leading space.
 
 ## [1.7.0] - 2026-05-24
 
@@ -189,6 +210,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Corrected bin path format in package.json
 
+[1.7.1]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.6.6...v1.7.0
+[1.6.6]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.6.5...v1.6.6
+[1.6.5]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.7...v1.6.5
 [1.5.7]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.6...v1.5.7
 [1.5.6]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.5...v1.5.6
 [1.5.5]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.5.4...v1.5.5
