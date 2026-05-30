@@ -44,7 +44,8 @@ context/
   - 配置类型：`TrackerConfig`、`ToastConfig`、`BudgetConfig`、`ConfigValidationResult`
   - 配置验证：`validateConfig(raw)` — 将任意输入规范化为有效配置，收集 warnings
   - 默认配置：`DEFAULT_CONFIG` 常量
-  - 工具函数：`formatCost`、`formatTokens`、`getStartOfDay`/`Week`/`Month`
+  - 工具函数：`formatCost`、`formatTokens`、`formatLocalDateKey`、`getStartOfDay`/`Week`/`Month`
+  - 共享口径：`hasBillableTokenUsage()` 统一判断 `input`、`output`、`cacheRead`、`cacheWrite` 是否构成可计费 token 记录
   - 由 `index.ts` 和 `bin/opencode-tokens.ts` 共同导入
 
 - `index.ts`
@@ -57,11 +58,13 @@ context/
 - `bin/opencode-tokens.ts`
   - CLI 入口：统计、预算、定价相关命令
   - 读取同一份日志文件并执行聚合计算
+  - 支持 stats、budget、pricing、models、doctor、config、export、trend 等本地分析命令
+  - daily 分组使用本地自然日；日志加载使用 `hasBillableTokenUsage()` 纳入 cache-only 记录
 
 - `scripts/release.js`
   - 分段式 release controller：`check`、`prepare`、`tag`
   - 默认只做本地检查；metadata commit 与 tag push 必须通过独立命令触发
-  - 使用 npm 命令口径，与 CI/release workflow 保持一致
+  - 使用 npm 命令口径，与 CI/release workflow 保持一致；`prepare` 只允许改动 release metadata 白名单文件
 
 ## 数据与配置
 
@@ -83,7 +86,7 @@ context/
 npm install
 npm run build
 npm test
-npm run release
+npm run release:check
 npm run release:prepare
 npm run release:tag
 npm run build && node scripts/real-opencode-cli-smoke.mjs
@@ -91,6 +94,8 @@ node dist/bin/opencode-tokens.js
 node dist/bin/opencode-tokens.js today --by model
 node dist/bin/opencode-tokens.js budget
 node dist/bin/opencode-tokens.js pricing
+node dist/bin/opencode-tokens.js models
+node dist/bin/opencode-tokens.js doctor
 ```
 
 ## 维护提醒
@@ -101,3 +106,5 @@ node dist/bin/opencode-tokens.js pricing
 - `seen` 去重集合存在上限（10,000）以控制内存
 - 插件 budget 检查已优化为内存累加器，不再每条消息读文件
 - CLI `budget` 命令使用 `loadEntries(since)` 仅加载相关周期数据
+- CLI 与插件的 token 记录准入必须继续复用 `hasBillableTokenUsage()`，避免 cache-only 记录在某一侧被漏统
+- 日期维度统计必须使用本地自然日口径；避免在 CLI breakdown 中重新引入 UTC `toISOString().slice(0, 10)` 分组
