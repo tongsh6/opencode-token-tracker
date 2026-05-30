@@ -1,6 +1,6 @@
 # REPO SNAPSHOT
 
-更新时间：2026-05-24
+更新时间：2026-05-30
 
 ## 项目定位
 
@@ -75,7 +75,7 @@ context/
 - 提交规范：Conventional Commits
 - CI：GitHub Actions（Node 18 + 22 矩阵，push/PR 到 main/dev 触发）
 - 发布：`npm run release:check` -> `npm run release:prepare` -> PR 合并到 `main` -> `npm run release:tag`；tag 触发 GitHub Actions 执行 `npm publish`
-- 当前版本：`1.7.0`
+- 当前版本：`1.7.1`
 
 ## 常用命令
 
