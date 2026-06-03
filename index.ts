@@ -1,8 +1,9 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import type { ModelPricing, TrackerConfig, BudgetStatus, BudgetSpentSnapshot } from "./lib/shared.js"
+import type { ModelPricing, TrackerConfig, BudgetStatus, BudgetSpentSnapshot, SessionInfoInput } from "./lib/shared.js"
 import {
   BUILTIN_PRICING,
   DEFAULT_CONFIG,
+  buildSessionRecord,
   calculateCost,
   evaluateBudgetStatus,
   findModelConfigPricing,
@@ -24,6 +25,7 @@ const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
 const LOG_DIR = join(CONFIG_DIR, "logs", "token-tracker")
 const LOG_FILE = join(LOG_DIR, "tokens.jsonl")
+const SESSIONS_LOG_FILE = join(LOG_DIR, "sessions.jsonl")
 
 // ============================================================================
 // Configuration
@@ -141,6 +143,29 @@ function logJson(data: Record<string, unknown>) {
   ensureLogDir()
   const entry = JSON.stringify({ ...data, _ts: Date.now() }) + "\n"
   appendFileSync(LOG_FILE, entry)
+}
+
+// Append-only sidecar of session metadata (id/title/parentID/directory) used
+// by the CLI to label `--by session` rows and roll child sessions up to their
+// parent. Per-process dedup keeps writes to actual title/parent changes only.
+const seenSessions = new Map<string, string>()
+
+function logSessionMeta(info: SessionInfoInput): void {
+  const record = buildSessionRecord(info)
+  if (!record) return
+
+  const signature = `${record.title ?? ""}|${record.parentID ?? ""}|${record.directory ?? ""}`
+  if (seenSessions.get(record.sessionId) === signature) return
+  seenSessions.set(record.sessionId, signature)
+
+  // Bound memory the same way the message dedup set does.
+  if (seenSessions.size > 10000) {
+    const stale = Array.from(seenSessions.keys()).slice(0, 5000)
+    for (const key of stale) seenSessions.delete(key)
+  }
+
+  ensureLogDir()
+  appendFileSync(SESSIONS_LOG_FILE, JSON.stringify({ type: "session", ...record, _ts: Date.now() }) + "\n")
 }
 
 // ============================================================================
@@ -583,6 +608,12 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
                 },
               })
             } catch {}
+          }
+
+          // Capture session metadata (title/parentID) for the CLI session view.
+          if (event.type === "session.created" || event.type === "session.updated") {
+            const props = event.properties as { info?: SessionInfoInput } | undefined
+            if (props?.info) logSessionMeta(props.info)
           }
         } catch {}
       },

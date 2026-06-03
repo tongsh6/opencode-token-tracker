@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [1.7.2] - 2026-06-02
+
+### Added
+
+- `opencode-tokens --by session` now shows human-readable session titles, captured from OpenCode `session.created` / `session.updated` events into a new append-only `sessions.jsonl` sidecar log next to `tokens.jsonl`.
+- Added a `Last Active` column to the session breakdown so sessions can be told apart and ordered by recency at a glance.
+
+### Changed
+
+- The `--by session` table now rolls child/subagent sessions up into their parent session and labels each row by the parent's title. Sessions without captured metadata (including sessions created before this version) fall back to a distinctive short session code instead of a common-prefix truncated id.
+
 ## [1.7.1] - 2026-05-30
 
 ### Added
