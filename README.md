@@ -86,10 +86,19 @@ Once installed, you'll see Toast notifications after each AI response:
 
 ```
 12.5K tokens
-$0.023 | Session: $0.156
+$0.023 | Session: 45.2K · $0.156
 ```
 
+> `Session:` is the cumulative token and cost total of the whole top-level task. When the main agent spawns sub-agents, their usage is rolled up into the parent session, so the main and sub-agent toasts converge on the same task total.
+
 When budget limits are configured, you'll see warnings:
+
+```
+12.5K tokens
+$0.023 | Session: 45.2K · Daily: $4.20/$5.00 (84%)
+```
+
+When a budget is exceeded, the toast switches to an alert:
 
 ```
 ⚠️ Budget exceeded!
@@ -194,7 +203,8 @@ Breakdown options (`--by`):
 - `agent` - Group by agent (e.g., sisyphus, coder)
 - `provider` - Group by provider (e.g., anthropic, openai)
 - `daily` - Show day-by-day breakdown
-- `session` - Group by session ID
+- `session` - Group by top-level session, rolling sub-agent sessions up into their parent (labelled by the parent's title)
+- `raw-session` - Group by each session id without rollup, so sub-agent sessions stay as separate rows labelled by their own title
 - `all` - Show all breakdowns
 
 ### Trend Chart

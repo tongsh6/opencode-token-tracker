@@ -85,10 +85,19 @@ opencode-tokens today
 
 ```
 12.5K tokens
-$0.023 | Session: $0.156
+$0.023 | Session: 45.2K · $0.156
 ```
 
+> `Session:` 是整个顶层任务的累计 token 与成本。当主 agent 调起子 agent 时，子 agent 的消耗会归并到其父会话，因此主、子 agent 的 toast 会收敛到同一个任务总额。
+
 配置预算后，超阈值会显示预警：
+
+```
+12.5K tokens
+$0.023 | Session: 45.2K · Daily: $4.20/$5.00 (84%)
+```
+
+预算超限时，toast 会切换为告警：
 
 ```
 ⚠️ Budget exceeded!
@@ -198,7 +207,8 @@ opencode-tokens --by daily
 - `agent`：按 agent 分组
 - `provider`：按 provider 分组
 - `daily`：按天分组
-- `session`：按 session ID 分组
+- `session`：按顶层会话分组，子 agent 会话归并到其父会话（用父会话标题标注）
+- `raw-session`：按每个 session id 分组、不做归并，子 agent 会话保留为独立行并用各自标题标注
 - `all`：显示全部分组
 
 ### 趋势图

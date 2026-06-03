@@ -12,10 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `opencode-tokens --by session` now shows human-readable session titles, captured from OpenCode `session.created` / `session.updated` events into a new append-only `sessions.jsonl` sidecar log next to `tokens.jsonl`.
 - Added a `Last Active` column to the session breakdown so sessions can be told apart and ordered by recency at a glance.
+- (#83) Added `opencode-tokens --by raw-session`, a per-session view that keeps every session as its own row (sub-agent sessions are not rolled up into the parent) and labels each by its own title, for inspecting sub-agent usage detail alongside the rolled-up `--by session` view.
 
 ### Changed
 
 - The `--by session` table now rolls child/subagent sessions up into their parent session and labels each row by the parent's title. Sessions without captured metadata (including sessions created before this version) fall back to a distinctive short session code instead of a common-prefix truncated id.
+
+### Fixed
+
+- (#83) The toast `Session:` total and the idle session summary now roll sub-agent sessions up into their top-level session, so the main and sub-agent toasts converge on the same whole-task total instead of each counting only its own session. Rollup happens at display time from in-memory parent links learned via `session.created` / `session.updated`, so a parent link learned after a sub-agent's first message still merges on the next toast.
 
 ## [1.7.1] - 2026-05-30
 

@@ -3,6 +3,8 @@ import type { ModelPricing, TrackerConfig, BudgetStatus, BudgetSpentSnapshot, Se
 import {
   BUILTIN_PRICING,
   DEFAULT_CONFIG,
+  aggregateRootSession,
+  buildMessageToast,
   buildSessionRecord,
   calculateCost,
   evaluateBudgetStatus,
@@ -94,6 +96,14 @@ interface SessionStats {
 
 const sessionStats = new Map<string, SessionStats>()
 
+// In-memory session parent links (sessionId -> parentID) learned from
+// session.created / session.updated events. Used to roll a sub-agent session's
+// usage up into its top-level (parent) session when displaying toasts, so the
+// `Session:` total reflects the whole task rather than one agent's slice. Grows
+// one entry per session alongside sessionStats; the durable form for the CLI is
+// sessions.jsonl. The persisted parentID is recorded separately by logSessionMeta.
+const parentOf = new Map<string, string | undefined>()
+
 function getOrCreateSessionStats(sessionId: string): SessionStats {
   if (!sessionStats.has(sessionId)) {
     sessionStats.set(sessionId, {
@@ -108,6 +118,11 @@ function getOrCreateSessionStats(sessionId: string): SessionStats {
     })
   }
   return sessionStats.get(sessionId)!
+}
+
+function rememberSessionParent(info: SessionInfoInput): void {
+  if (!info.id) return
+  parentOf.set(info.id, info.parentID)
 }
 
 // ============================================================================
@@ -417,12 +432,6 @@ function checkBudgetStatus(): BudgetStatus | null {
   return evaluateBudgetStatus(config.budget, snapshot, budgetTracker.initialized)
 }
 
-function formatBudgetMessage(status: BudgetStatus): string {
-  const pct = Math.round(status.percentage * 100)
-  const periodLabel = status.period.charAt(0).toUpperCase() + status.period.slice(1)
-  return `${periodLabel}: ${formatCost(status.spent)}/${formatCost(status.limit)} (${pct}%)`
-}
-
 // ============================================================================
 // Plugin
 // ============================================================================
@@ -550,32 +559,25 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             // Show toast for this message
             if (config.toast.enabled) {
               const totalTokens = input + output
-              
+
+              // Roll sub-agent sessions up to their top-level session so
+              // `Session:` reflects the whole task, not just this agent's slice.
+              const rootStats = aggregateRootSession(sessionStats, parentOf, sessionId)
+
               // Check budget status
               const budgetStatus = checkBudgetStatus()
-              
-              let title = `${formatTokens(totalTokens)} tokens`
-              let message = `${formatCost(cost)} | Session: ${formatCost(stats.totalCost)}`
-              let variant: "info" | "warning" | "error" = "info"
-              
-              // Add budget warning/alert if applicable
-              if (budgetStatus) {
-                if (budgetStatus.exceeded) {
-                  title = `⚠️ Budget exceeded!`
-                  message = formatBudgetMessage(budgetStatus)
-                  variant = "error"
-                } else if (budgetStatus.warning) {
-                  message = `${formatCost(cost)} | ${formatBudgetMessage(budgetStatus)}`
-                  variant = "warning"
-                }
-              }
+              const toast = buildMessageToast({
+                messageTokens: totalTokens,
+                messageCost: cost,
+                sessionTokens: rootStats.totalInput + rootStats.totalOutput,
+                sessionCost: rootStats.totalCost,
+                budget: budgetStatus,
+              })
               
               try {
                 await client.tui.showToast({
                   body: {
-                    title,
-                    message,
-                    variant,
+                    ...toast,
                     duration: budgetStatus?.exceeded ? 5000 : config.toast.duration,
                   },
                 })
@@ -595,14 +597,17 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             const stats = sessionStats.get(sessionId)
             if (!stats || stats.messageCount === 0) return
 
-            const duration = Math.round((Date.now() - stats.startTime) / 1000 / 60)
-            const totalTokens = stats.totalInput + stats.totalOutput
+            // Summarize the whole task: roll child sessions up to the root and
+            // measure duration from the earliest session in the group.
+            const rootStats = aggregateRootSession(sessionStats, parentOf, sessionId)
+            const duration = Math.round((Date.now() - rootStats.startTime) / 1000 / 60)
+            const totalTokens = rootStats.totalInput + rootStats.totalOutput
 
             try {
               await client.tui.showToast({
                 body: {
                   title: `Session: ${formatTokens(totalTokens)} tokens`,
-                  message: `${formatCost(stats.totalCost)} | ${stats.messageCount} msgs | ${duration}min`,
+                  message: `${formatCost(rootStats.totalCost)} | ${rootStats.messageCount} msgs | ${duration}min`,
                   variant: "info",
                   duration: 5000,
                 },
@@ -610,10 +615,15 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             } catch {}
           }
 
-          // Capture session metadata (title/parentID) for the CLI session view.
+          // Capture session metadata (title/parentID) for the CLI session view
+          // and the in-memory parent map used to roll sub-agent usage up to the
+          // top-level session in toasts.
           if (event.type === "session.created" || event.type === "session.updated") {
             const props = event.properties as { info?: SessionInfoInput } | undefined
-            if (props?.info) logSessionMeta(props.info)
+            if (props?.info) {
+              rememberSessionParent(props.info)
+              logSessionMeta(props.info)
+            }
           }
         } catch {}
       },

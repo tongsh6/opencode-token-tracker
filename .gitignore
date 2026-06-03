@@ -8,6 +8,7 @@ node_modules/
 
 # Build output (keep dist for npm publish)
 # dist/
+bin
 
 # IDE
 .idea/
@@ -30,3 +31,8 @@ dogfood-artifacts/
 
 # OpenCode internal
 .omo/
+
+### AI
+.claude
+.idea
+.serena
