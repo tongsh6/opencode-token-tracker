@@ -4,7 +4,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { TrackerConfig } from "../lib/shared.js"
+import type { SessionMeta, SessionMetaRecord, TrackerConfig } from "../lib/shared.js"
 import {
   BUILTIN_PRICING,
   BUILTIN_PRICING_META,
@@ -16,14 +16,18 @@ import {
   getStartOfMonth,
   getStartOfWeek,
   hasBillableTokenUsage,
+  mergeSessionMeta,
   resolvePricingStatus,
+  resolveRootSession,
   round2,
+  sessionDisplayLabel,
   validateConfig,
 } from "../lib/shared.js"
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
 const LOG_FILE = join(CONFIG_DIR, "logs", "token-tracker", "tokens.jsonl")
+const SESSIONS_LOG_FILE = join(CONFIG_DIR, "logs", "token-tracker", "sessions.jsonl")
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
 const OPENCODE_CONFIG_FILES = [
   join(CONFIG_DIR, "opencode.json"),
@@ -78,11 +82,6 @@ function padLeft(str: string, len: number): string {
   return str.length >= len ? str : `${" ".repeat(len - str.length)}${str}`
 }
 
-function truncateSessionId(sessionId?: string): string {
-  if (!sessionId) return "unknown"
-  return sessionId.length > 16 ? `${sessionId.slice(0, 14)}…` : sessionId
-}
-
 function formatAge(ts: number): string {
   const diffMs = Date.now() - ts
   if (diffMs < 60_000) return "less than 1m ago"
@@ -91,6 +90,12 @@ function formatAge(ts: number): string {
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
+}
+
+// Compact relative time for table columns: "just now" / "5m ago" / "2h ago" / "3d ago".
+function formatLastActive(ts: number): string {
+  if (Date.now() - ts < 60_000) return "just now"
+  return formatAge(ts)
 }
 
 const ZERO_COST_PROVIDER_HINTS: Array<{ match: string; reason: string }> = [
@@ -371,6 +376,99 @@ function printTable(title: string, groups: Map<string, Stats>, labelHeader: stri
   console.log()
 }
 
+function loadSessionMeta(): Map<string, SessionMeta> {
+  if (!existsSync(SESSIONS_LOG_FILE)) return new Map()
+
+  const records: SessionMetaRecord[] = []
+  try {
+    const content = readFileSync(SESSIONS_LOG_FILE, "utf-8")
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        const rec = JSON.parse(trimmed) as SessionMetaRecord & { type?: string }
+        if (rec.type !== "session") continue
+        records.push(rec)
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    return new Map()
+  }
+
+  return mergeSessionMeta(records)
+}
+
+function printSessionBreakdown(entries: TokenEntry[], metaMap: Map<string, SessionMeta>) {
+  const parentOf = new Map<string, string | undefined>()
+  for (const meta of metaMap.values()) {
+    parentOf.set(meta.sessionId, meta.parentID)
+  }
+
+  interface SessionRow {
+    stats: Stats
+    lastActive: number
+  }
+
+  const rows = new Map<string, SessionRow>()
+  for (const e of entries) {
+    const root = resolveRootSession(e.sessionId ?? "unknown", parentOf)
+    let row = rows.get(root)
+    if (!row) {
+      row = { stats: createEmptyStats(), lastActive: 0 }
+      rows.set(root, row)
+    }
+    row.stats.input += e.input ?? 0
+    row.stats.output += e.output ?? 0
+    row.stats.reasoning += e.reasoning ?? 0
+    row.stats.cacheRead += e.cacheRead ?? 0
+    row.stats.cacheWrite += e.cacheWrite ?? 0
+    row.stats.cost += e.cost ?? 0
+    row.stats.count += 1
+    if (e._ts > row.lastActive) row.lastActive = e._ts
+  }
+
+  const sorted = Array.from(rows.entries()).sort((a, b) => b[1].stats.cost - a[1].stats.cost)
+  if (sorted.length === 0) {
+    console.log(`\n  No data for By Session\n`)
+    return
+  }
+
+  const LABEL_MAX = 40
+  const labeled = sorted.map(([root, row]) => ({
+    label: sessionDisplayLabel(root, metaMap.get(root), LABEL_MAX),
+    lastActive: row.lastActive ? formatLastActive(row.lastActive) : "-",
+    stats: row.stats,
+  }))
+
+  const labelHeader = "Session"
+  const activeHeader = "Last Active"
+  const labelWidth = Math.max(labelHeader.length, ...labeled.map((r) => r.label.length))
+  const activeWidth = Math.max(activeHeader.length, ...labeled.map((r) => r.lastActive.length))
+  const tokensWidth = 10
+  const costWidth = 10
+  const countWidth = 6
+
+  console.log()
+  console.log(`  By Session`)
+  console.log(`  ${"─".repeat(labelWidth + activeWidth + tokensWidth + costWidth + countWidth + 8)}`)
+  console.log(
+    `  ${padRight(labelHeader, labelWidth)}  ${padRight(activeHeader, activeWidth)}  ${padLeft("Tokens", tokensWidth)}  ${padLeft("Cost", costWidth)}  ${padLeft("Msgs", countWidth)}`
+  )
+  console.log(
+    `  ${"-".repeat(labelWidth)}  ${"-".repeat(activeWidth)}  ${"-".repeat(tokensWidth)}  ${"-".repeat(costWidth)}  ${"-".repeat(countWidth)}`
+  )
+
+  for (const r of labeled) {
+    const totalTokens = r.stats.input + r.stats.output
+    console.log(
+      `  ${padRight(r.label, labelWidth)}  ${padRight(r.lastActive, activeWidth)}  ${padLeft(formatTokens(totalTokens, 2), tokensWidth)}  ${padLeft(formatCost(r.stats.cost), costWidth)}  ${padLeft(r.stats.count.toString(), countWidth)}`
+    )
+  }
+  console.log()
+}
+
 function printDailyBreakdown(entries: TokenEntry[]) {
   const byDay = groupBy(entries, (e) => {
     const date = new Date(e._ts)
@@ -505,7 +603,7 @@ function cmdStats(period: StatsPeriod, breakdown?: StatsBreakdown) {
       printDailyBreakdown(entries)
       break
     case "session":
-      printTable("By Session", groupBy(entries, (e) => truncateSessionId(e.sessionId)), "Session")
+      printSessionBreakdown(entries, loadSessionMeta())
       break
     case "all":
       printTable("By Model", groupBy(entries, (e) => e.model ?? "unknown"), "Model")

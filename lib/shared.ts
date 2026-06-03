@@ -740,6 +740,122 @@ export function calculateCost(
   const outputCost = (output / 1_000_000) * pricing.output
   const cacheReadCost = (cacheRead / 1_000_000) * finalCacheReadPrice
   const cacheWriteCost = (cacheWrite / 1_000_000) * finalCacheWritePrice
-  
+
   return inputCost + outputCost + cacheReadCost + cacheWriteCost
+}
+
+// ============================================================================
+// Session Metadata & Display
+// ============================================================================
+
+export interface SessionMeta {
+  sessionId: string
+  title?: string
+  parentID?: string
+  directory?: string
+  _ts: number
+}
+
+/** Shape of a raw line in sessions.jsonl (all fields optional/untrusted). */
+export interface SessionMetaRecord {
+  sessionId?: string
+  title?: string
+  parentID?: string
+  directory?: string
+  _ts?: number
+}
+
+/**
+ * Resolve a session id to its root by following parentID links.
+ * Stops when no parent is known or a cycle is detected, so an unknown
+ * parent still yields a stable root id to group descendants under.
+ */
+export function resolveRootSession(
+  sessionId: string,
+  parentOf: Map<string, string | undefined>,
+): string {
+  let current = sessionId
+  const seen = new Set<string>()
+  while (true) {
+    const parent = parentOf.get(current)
+    if (!parent || parent === current || seen.has(parent)) {
+      return current
+    }
+    seen.add(current)
+    current = parent
+  }
+}
+
+/**
+ * Merge raw sessions.jsonl records into one SessionMeta per session id.
+ * Later non-empty fields win; empty/whitespace titles never clobber a real
+ * one (session.created may arrive before a title is generated).
+ */
+export function mergeSessionMeta(records: SessionMetaRecord[]): Map<string, SessionMeta> {
+  const map = new Map<string, SessionMeta>()
+  for (const r of records) {
+    const id = r.sessionId
+    if (!id) continue
+    const existing = map.get(id) ?? { sessionId: id, _ts: 0 }
+    const title = typeof r.title === "string" ? r.title.trim() : ""
+    if (title) existing.title = title
+    if (r.parentID) existing.parentID = r.parentID
+    if (r.directory) existing.directory = r.directory
+    if (typeof r._ts === "number" && r._ts > existing._ts) existing._ts = r._ts
+    map.set(id, existing)
+  }
+  return map
+}
+
+/** Truncate a label to maxWidth, appending an ellipsis when it overflows. */
+export function truncateLabel(str: string, maxWidth: number): string {
+  if (str.length <= maxWidth) return str
+  if (maxWidth <= 1) return "…"
+  return `${str.slice(0, maxWidth - 1)}…`
+}
+
+/** Distinctive short code for a session id (its tail), for fallback display. */
+export function shortSessionCode(sessionId?: string): string {
+  if (!sessionId) return "unknown"
+  return sessionId.length > 12 ? `…${sessionId.slice(-10)}` : sessionId
+}
+
+/** Pick a human label for a (root) session: title when known, else short code. */
+export function sessionDisplayLabel(
+  rootId: string,
+  meta: SessionMeta | undefined,
+  maxWidth: number,
+): string {
+  const title = meta?.title?.trim()
+  if (title) return truncateLabel(title, maxWidth)
+  return shortSessionCode(rootId)
+}
+
+/** Subset of an OpenCode Session event payload the tracker cares about. */
+export interface SessionInfoInput {
+  id?: string
+  title?: string
+  parentID?: string
+  directory?: string
+}
+
+/**
+ * Build a session metadata record to persist, or null when there is nothing
+ * worth recording yet (no title and no parent link). Title is trimmed; a
+ * parentID is recorded even before a title exists so child sessions can be
+ * rolled up into their parent.
+ */
+export function buildSessionRecord(info: SessionInfoInput): (SessionMetaRecord & { sessionId: string }) | null {
+  const sessionId = info.id
+  if (!sessionId) return null
+
+  const title = typeof info.title === "string" ? info.title.trim() : ""
+  const parentID = info.parentID
+  if (!title && !parentID) return null
+
+  const record: SessionMetaRecord & { sessionId: string } = { sessionId }
+  if (title) record.title = title
+  if (parentID) record.parentID = parentID
+  if (info.directory) record.directory = info.directory
+  return record
 }

@@ -598,3 +598,48 @@ describe("CLI pricing metadata and notice", () => {
     assert.ok(res.stdout.includes("gemini-3.1-pro-preview"))
   })
 })
+
+describe("CLI session breakdown", () => {
+  it("should show titles, roll up child sessions into the parent, and fall back to a short code", () => {
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const sessionsFile = join(logsDir, "sessions.jsonl")
+
+    const now = Date.now()
+    const parentId = "ses_parentAAAAAAAAAAAA"
+    const childId = "ses_childBBBBBBBBBBBB"
+    const orphanId = "ses_ZZZZZZZZZZZZ1234567890"
+
+    const tokenEntries = [
+      { type: "tokens", _ts: now, sessionId: parentId, input: 1000, output: 0, cost: 1, provider: "openai", model: "gpt-4o" },
+      { type: "tokens", _ts: now, sessionId: childId, input: 2000, output: 0, cost: 2, provider: "openai", model: "gpt-4o" },
+      { type: "tokens", _ts: now, sessionId: orphanId, input: 500, output: 0, cost: 0.5, provider: "openai", model: "gpt-4o" },
+    ]
+    writeFileSync(logsFile, `${tokenEntries.map((e) => JSON.stringify(e)).join("\n")}\n`)
+
+    const sessionRecords = [
+      { type: "session", sessionId: parentId, title: "Fix login redirect bug", _ts: now },
+      { type: "session", sessionId: childId, parentID: parentId, _ts: now },
+    ]
+    writeFileSync(sessionsFile, `${sessionRecords.map((s) => JSON.stringify(s)).join("\n")}\n`)
+
+    try {
+      const res = run(["--by", "session"])
+      assert.equal(res.status, 0)
+      assert.ok(res.stdout.includes("By Session"))
+      // New Last Active column header
+      assert.ok(res.stdout.includes("Last Active"))
+      // Parent title shown, with child rolled up: 1000+2000 tokens, $1+$2, 2 msgs
+      assert.match(res.stdout, /Fix login redirect bug.*3\.0K\s+\$3\.00\s+2/)
+      // Orphan with no metadata falls back to a distinctive short code
+      assert.ok(res.stdout.includes("…1234567890"))
+      // Recent activity is shown compactly, not the verbose "less than 1m ago"
+      assert.ok(res.stdout.includes("just now"))
+      assert.ok(!res.stdout.includes("less than 1m ago"))
+    } finally {
+      rmSync(logsFile, { force: true })
+      rmSync(sessionsFile, { force: true })
+    }
+  })
+})
