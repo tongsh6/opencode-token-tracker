@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [Unreleased]
+
+## [1.8.0] - 2026-10-05
+
+### Added
+
+- (#83) CLI `--by session` 显示会话标题和最近活动时间；缺少元数据时使用有区分度的会话短码。
+- (#83) 新增 `--by raw-session`，将主、子会话分别显示，便于检查各 agent 的独立消耗。
+- 插件监听 `session.created` / `session.updated`，将标题与父子关系写入 `sessions.jsonl`；启动时恢复关系，损坏或不可读的元数据不会阻断插件。
+- 定价增加逐型号核验日期与已知有效期。`pricing` / `models` 展示核验信息，`doctor` 提示距核验超过 90 天或已到期的内置价格。
+- 补齐 DeepSeek Flash 官方名及兼容名、Kimi K2.7 Code 的内置价格，并显式维护缓存单价。
+
+### Changed
+
+- (#83) `--by session` 默认按顶层任务归并子会话；需要原始会话明细时使用 `--by raw-session`。
+- (#83) 普通 Toast 同时展示当前任务的累计 token 和成本，预算预警中保留累计 token。
+- DeepSeek Flash/Pro 使用明确标注的 USD 峰时保守估算；谷时价格低 50%，不自动选择时段或节假日价格。
+- 新核价的 DeepSeek/Kimi 条目接受精确名和 `/` 前缀名；未核价变体继续明确回退。其他既有型号保留原匹配规则，用户覆盖优先级不变。
+
+### Fixed
+
+- (#83) Toast 和 idle 摘要归并主、子及更深层会话消耗；仅更新标题不会清空已知父子关系，晚到关系在下次展示生效，父会话无自身消息时仍能显示子会话汇总。
+- 修复跨日、周、月后的首笔消耗被预算重复累计、提前触发预警的问题；周期重载在当前记录写入前完成，并与日志共用时间戳。
+- 更新 DeepSeek V4 Pro 的过期促销价；已停用的 `deepseek-chat` / `deepseek-reasoner` 保留历史估算值并提示到期。
+- 计价、来源标签和核验查询共用内置匹配入口，避免来源显示与实际单价不一致。
+
+### Documentation
+
+- 明确 Toast 只累计当前插件进程收到的消耗，重启恢复父子关系但不回放历史 token；完整历史由 CLI 从日志查询。
+- 记录本轮定价核验的官方依据与范围。局部更新不会刷新其他型号的核验日期，也不会重算已保存的历史 cost。
+- 补充预算跨周期、会话事件生命周期和定价核验的经验记录及技术快照。
+
+### Internal
+
+- 新增插件事件级回归，覆盖预算切换、午夜写入、日志失败、主子会话归并、重启与元数据读取降级。
+- 新增定价匹配、覆盖优先级、核验时效边界、CLI 诊断及历史数据不被重算的回归；自动化测试由 97 项增至 173 项。
+
 ## [1.7.1] - 2026-05-30
 
 ### Added
@@ -210,6 +247,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Corrected bin path format in package.json
 
+[Unreleased]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.6.6...v1.7.0
 [1.6.6]: https://github.com/tongsh6/opencode-token-tracker/compare/v1.6.5...v1.6.6

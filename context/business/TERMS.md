@@ -10,6 +10,7 @@
 
 - `TokenEntry`：一条 token 记录，来源于一次可计量消息更新
 - `sessionId`：OpenCode 会话标识，用于会话级聚合
+- `parentID`：会话事件中的父会话标识，沿此关系定位顶层任务；不要与消息事件中表示父消息的 `parentID` 混用
 - `messageId`：消息标识，用于去重与单条追踪
 - `agent`：执行该消息的 agent 名称（如 `coder`、`sisyphus`）
 - `model`：模型标识（如 `claude-opus-4.5`）
@@ -48,6 +49,10 @@
 - 本插件计算结果不等同于云厂商正式账单
 - 定价 source of truth 以 provider 官网为准；OpenCode reported cost 只作为对照信号
 - 订阅制或打包计费场景可将 provider 价格配置为 0
+- `built-in` 只描述价格来源，不保证价格仍有效。recent 表示核验距今不超过 90 天，stale 表示超过复核阈值，expired 表示已过已知有效期；unknown 表示日期或时钟无法可靠判断
+- 各型号保留自己的核验日期，未单独更新的型号使用全表基线日期；局部刷新不能让其他型号看似刚核价
+- DeepSeek Flash/Pro 内置价格采用峰时保守估算，不自动判断谷时/节假日；用户覆盖优先级不变
+- 价格更新只影响新记录；历史统计和导出使用日志已保存的 cost，不自动按今日价格重算
 
 ## 5) 预算语义
 
@@ -63,9 +68,10 @@
 
 ## 6) 展示语义
 
-- Toast：强调 "即时反馈"（单次消息成本 + 会话累计）
-- Session idle 提示：强调 "会话阶段总结"
-- CLI：强调 "时间维度分析" 与 "分组统计"（model/agent/provider/daily）
+- Toast：显示单次消息消耗及按顶层任务归并的累计 token/成本；累计范围为当前插件进程收到的消息，包含已知子会话
+- Session idle 提示：按顶层任务汇总，即使父会话尚无自身消息，也包含子会话的消耗
+- 启动时从 `sessions.jsonl` 恢复关系，但不回放历史 token；标题更新保留已有父子关系，晚到关系在下次展示生效
+- CLI：从持久化日志进行历史分析；`--by session` 按根会话汇总，`--by raw-session` 按原始会话分别显示，其他维度仍支持 model/agent/provider/daily
 
 ## 7) 非目标（Out of Scope）
 

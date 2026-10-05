@@ -30,6 +30,9 @@ If you are building AI-assisted engineering workflows, we strongly recommend ado
 - **Budgets are warnings, not enforcement.** This plugin does not block API calls, throttle requests, or interrupt active sessions. It is designed purely as an observability and tracking tool.
 - **Subscription or bundled providers** (such as GitHub Copilot, Cursor, etc.) or free local models should be configured with zero-cost overrides in your configuration file (see [Configuration](#configuration)).
 - **Pricing freshness**: The built-in pricing table is manually maintained. Please run `opencode-tokens models` to inspect which of your used models currently fall back to the default pricing, and configure overrides if necessary.
+- **Per-model audits**: `pricing` and `models` show each built-in entry's review date. `doctor` flags used entries that are stale (more than 90 days since review) or expired (past a known validity date). A recent audit is not a guarantee that prices remain unchanged. User overrides are not assigned the unused built-in entry's audit status.
+- **DeepSeek estimates**: Flash/Pro use peak-hour USD rates; off-peak rates are 50% lower. Time-of-day and holiday selection are not automatic. Retired `deepseek-chat` / `deepseek-reasoner` retain legacy estimates marked expired. The October 2026 refresh covers DeepSeek Flash/Pro and Kimi K2.7 Code; other models retain their earlier review dates.
+- **Matching and history**: Newly audited DeepSeek/Kimi entries accept exact names and slash-prefixed names. Unverified variants such as `kimi-k2.7-code-highspeed` remain explicit fallbacks unless configured by the user. Updated prices apply to future records; stored historical costs are not recalculated.
 
 ## Installation
 
@@ -86,10 +89,19 @@ Once installed, you'll see Toast notifications after each AI response:
 
 ```
 12.5K tokens
-$0.023 | Session: $0.156
+$0.023 | Session: 45.2K · $0.156
 ```
 
+> `Session:` rolls usage received by the current plugin process up to the top-level task, including its sub-agents. Parent links are restored from `sessions.jsonl` on startup and updated by session events; links learned later take effect on the next toast. Historical token totals are not replayed after a restart. Use `opencode-tokens --by session` for totals from persisted logs, or `--by raw-session` to inspect individual sessions.
+
 When budget limits are configured, you'll see warnings:
+
+```
+12.5K tokens
+$0.023 | Session: 45.2K · Daily: $4.20/$5.00 (84%)
+```
+
+When a budget is exceeded, the toast switches to an alert:
 
 ```
 ⚠️ Budget exceeded!
@@ -194,7 +206,8 @@ Breakdown options (`--by`):
 - `agent` - Group by agent (e.g., sisyphus, coder)
 - `provider` - Group by provider (e.g., anthropic, openai)
 - `daily` - Show day-by-day breakdown
-- `session` - Group by session ID
+- `session` - Group by top-level session, rolling sub-agent sessions up into their parent (labelled by the parent's title)
+- `raw-session` - Group by each session id without rollup, so sub-agent sessions stay as separate rows labelled by their own title
 - `all` - Show all breakdowns
 
 ### Trend Chart

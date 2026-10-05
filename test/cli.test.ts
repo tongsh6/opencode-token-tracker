@@ -142,7 +142,7 @@ describe("CLI help and stats", () => {
     const invalidLong = run(["--by", "bananas"])
     assert.equal(invalidLong.status, 1)
     assert.ok(invalidLong.stderr.includes("Unsupported stats breakdown: bananas"))
-    assert.ok(invalidLong.stderr.includes("Allowed breakdowns: model, agent, provider, daily, day, session, all"))
+    assert.ok(invalidLong.stderr.includes("Allowed breakdowns: model, agent, provider, daily, day, session, raw-session, all"))
 
     const invalidPeriodLong = run(["today", "--by", "bananas"])
     assert.equal(invalidPeriodLong.status, 1)
@@ -592,9 +592,184 @@ describe("CLI pricing metadata and notice", () => {
     assert.ok(res.stdout.includes("Metadata last updated:"))
     assert.ok(res.stdout.includes("Source:"))
     assert.ok(res.stdout.includes("Fallback Pricing Notice:"))
+    assert.ok(res.stdout.includes("Partial refresh: DeepSeek Flash/Pro and Kimi K2.7 Code only"))
+    assert.ok(res.stdout.includes("Baseline audit:"))
+    assert.ok(res.stdout.includes("peak-rate estimate"))
+    assert.match(res.stdout, /deepseek-flash\s+\$0\.3\s+\$1\.2\s+\$0\.006\s+\$0\s+.*reviewed 2026-10-05/)
+    assert.match(res.stdout, /kimi-k2\.7-code\s+\$0\.95\s+\$4\s+\$0\.19\s+\$0\s+.*reviewed 2026-10-05/)
+    assert.match(res.stdout, /claude-sonnet-4\.6.*reviewed 2026-05-29/)
     assert.ok(res.stdout.includes("claude-sonnet-4.6"))
     assert.ok(res.stdout.includes("gpt-5.5"))
     assert.ok(res.stdout.includes("deepseek-v4-pro"))
     assert.ok(res.stdout.includes("gemini-3.1-pro-preview"))
+  })
+})
+
+describe("CLI session breakdown", () => {
+  it("should show titles, roll up child sessions into the parent, and fall back to a short code", () => {
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const sessionsFile = join(logsDir, "sessions.jsonl")
+
+    const now = Date.now()
+    const parentId = "ses_parentAAAAAAAAAAAA"
+    const childId = "ses_childBBBBBBBBBBBB"
+    const orphanId = "ses_ZZZZZZZZZZZZ1234567890"
+
+    const tokenEntries = [
+      { type: "tokens", _ts: now, sessionId: parentId, input: 1000, output: 0, cost: 1, provider: "openai", model: "gpt-4o" },
+      { type: "tokens", _ts: now, sessionId: childId, input: 2000, output: 0, cost: 2, provider: "openai", model: "gpt-4o" },
+      { type: "tokens", _ts: now, sessionId: orphanId, input: 500, output: 0, cost: 0.5, provider: "openai", model: "gpt-4o" },
+    ]
+    writeFileSync(logsFile, `${tokenEntries.map((e) => JSON.stringify(e)).join("\n")}\n`)
+
+    const sessionRecords = [
+      { type: "session", sessionId: parentId, title: "Fix login redirect bug", _ts: now },
+      { type: "session", sessionId: childId, parentID: parentId, _ts: now },
+    ]
+    writeFileSync(sessionsFile, `${sessionRecords.map((s) => JSON.stringify(s)).join("\n")}\n`)
+
+    try {
+      const res = run(["--by", "session"])
+      assert.equal(res.status, 0)
+      assert.ok(res.stdout.includes("By Session"))
+      // New Last Active column header
+      assert.ok(res.stdout.includes("Last Active"))
+      // Parent title shown, with child rolled up: 1000+2000 tokens, $1+$2, 2 msgs
+      assert.match(res.stdout, /Fix login redirect bug.*3\.0K\s+\$3\.00\s+2/)
+      // Orphan with no metadata falls back to a distinctive short code
+      assert.ok(res.stdout.includes("…1234567890"))
+      // Recent activity is shown compactly, not the verbose "less than 1m ago"
+      assert.ok(res.stdout.includes("just now"))
+      assert.ok(!res.stdout.includes("less than 1m ago"))
+    } finally {
+      rmSync(logsFile, { force: true })
+      rmSync(sessionsFile, { force: true })
+    }
+  })
+})
+
+describe("CLI raw-session breakdown", () => {
+  it("lists each session separately with its own title, without rolling sub-agents into the parent", () => {
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const sessionsFile = join(logsDir, "sessions.jsonl")
+
+    const now = Date.now()
+    const parentId = "ses_rawParentAAAAAAAA"
+    const childId = "ses_rawChildBBBBBBBB"
+    const orphanId = "ses_RAWZZZZZZZZ1234567890"
+
+    const tokenEntries = [
+      { type: "tokens", _ts: now, sessionId: parentId, input: 1000, output: 0, cost: 1, provider: "openai", model: "gpt-4o" },
+      { type: "tokens", _ts: now, sessionId: childId, input: 2000, output: 0, cost: 2, provider: "openai", model: "gpt-4o" },
+      { type: "tokens", _ts: now, sessionId: orphanId, input: 500, output: 0, cost: 0.5, provider: "openai", model: "gpt-4o" },
+    ]
+    writeFileSync(logsFile, `${tokenEntries.map((e) => JSON.stringify(e)).join("\n")}\n`)
+
+    const sessionRecords = [
+      { type: "session", sessionId: parentId, title: "Main task review", _ts: now },
+      { type: "session", sessionId: childId, parentID: parentId, title: "Oracle subagent check", _ts: now },
+    ]
+    writeFileSync(sessionsFile, `${sessionRecords.map((s) => JSON.stringify(s)).join("\n")}\n`)
+
+    try {
+      const res = run(["--by", "raw-session"])
+      assert.equal(res.status, 0)
+      assert.ok(res.stdout.includes("By Raw Session"))
+      assert.ok(res.stdout.includes("Last Active"))
+      // Parent shown on its own, NOT merged with the child: 1.0K / $1.00 / 1 msg
+      assert.match(res.stdout, /Main task review\s+.*\s+1\.0K\s+\$1\.00\s+1/)
+      // Child sub-agent shown as its own row with its own title (no rollup)
+      assert.match(res.stdout, /Oracle subagent check\s+.*\s+2\.0K\s+\$2\.00\s+1/)
+      // Orphan with no metadata still falls back to a distinctive short code
+      assert.ok(res.stdout.includes("…1234567890"))
+      // Must NOT roll the child up into a single $3.00 / 2 msgs parent row
+      assert.ok(!/Main task review.*\$3\.00\s+2/.test(res.stdout))
+    } finally {
+      rmSync(logsFile, { force: true })
+      rmSync(sessionsFile, { force: true })
+    }
+  })
+})
+
+describe("CLI 定价时效与历史口径", () => {
+  function fixture(config: Record<string, unknown> = {}) {
+    const configDir = join(tmpHome, ".config", "opencode")
+    const logsDir = join(configDir, "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const configFile = join(configDir, "token-tracker.json")
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const pairs = [
+      ["deepseek", "deepseek-flash"],
+      ["deepseek", "deepseek-chat"],
+      ["moonshotai", "kimi-k2.7-code"],
+      ["moonshotai", "kimi-k2.7-code-highspeed"],
+    ]
+    const entries = pairs.map(([provider, model], i) => ({
+      type: "tokens", _ts: Date.now(), input: 1_000_000, output: 0,
+      provider, model, messageId: `pricing-${i}`, cost: 9.87,
+    }))
+    writeFileSync(configFile, JSON.stringify(config))
+    writeFileSync(logsFile, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n")
+    return { configFile, logsFile, entries, cleanup: () => {
+      rmSync(configFile, { force: true })
+      rmSync(logsFile, { force: true })
+    } }
+  }
+
+  it("models 和 doctor 区分内置来源、型号核验与未核价变体", () => {
+    const data = fixture()
+    try {
+      const models = run(["models"])
+      assert.equal(models.status, 0)
+      assert.match(models.stdout, /deepseek-flash\s+deepseek\s+1\s+built-in\s+.*reviewed 2026-10-05; peak estimate/)
+      assert.match(models.stdout, /kimi-k2\.7-code\s+moonshotai\s+1\s+built-in\s+.*reviewed 2026-10-05/)
+      assert.match(models.stdout, /kimi-k2\.7-code-highspeed\s+moonshotai\s+1\s+default\s+-/)
+      assert.match(models.stdout, /deepseek-chat\s+deepseek\s+1\s+built-in\s+.*valid until 2026-07-24T16:00:00Z/)
+      const doctor = run(["doctor"])
+      assert.equal(doctor.status, 0)
+      assert.ok(doctor.stdout.includes("Default-priced model/provider pairs: 1"))
+      assert.ok(doctor.stdout.includes("Built-in audit warnings:"))
+      assert.ok(doctor.stdout.includes("deepseek-chat (deepseek): expired"))
+      assert.ok(doctor.stdout.includes("Review stale/expired built-in prices"))
+    } finally {
+      data.cleanup()
+    }
+  })
+
+  it("用户覆盖价格后 doctor 不再对未使用的内置价格告警", () => {
+    const data = fixture({ providers: {
+      deepseek: { input: 0, output: 0 },
+      moonshotai: { input: 0, output: 0 },
+    } })
+    try {
+      const doctor = run(["doctor"])
+      assert.equal(doctor.status, 0)
+      assert.ok(doctor.stdout.includes("Built-in audit warnings: 0"))
+      assert.ok(doctor.stdout.includes("Default-priced model/provider pairs: 0"))
+      const models = run(["models"])
+      assert.match(models.stdout, /deepseek-chat\s+deepseek\s+1\s+provider cfg\s+-/)
+    } finally {
+      data.cleanup()
+    }
+  })
+
+  it("更新价格和诊断不会重算或修改历史 cost 与配置", () => {
+    const data = fixture()
+    try {
+      const beforeLog = readFileSync(data.logsFile, "utf8")
+      const beforeConfig = readFileSync(data.configFile, "utf8")
+      for (const command of ["pricing", "models", "doctor"]) assert.equal(run([command]).status, 0)
+      const exported = run(["export", "--format", "json"])
+      assert.equal(exported.status, 0)
+      assert.deepEqual(JSON.parse(exported.stdout), data.entries)
+      assert.equal(readFileSync(data.logsFile, "utf8"), beforeLog)
+      assert.equal(readFileSync(data.configFile, "utf8"), beforeConfig)
+    } finally {
+      data.cleanup()
+    }
   })
 })

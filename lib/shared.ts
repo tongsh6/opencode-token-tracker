@@ -25,7 +25,7 @@ export interface ProviderModelPricingMap {
 }
 
 // ============================================================================
-// Built-in Pricing (USD per 1M tokens) - Updated 2026-05-29
+// 内置价格（USD / 1M tokens）；核验日期按型号维护，本轮仅更新 DeepSeek 和 Kimi。
 // Sources:
 // - Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
 // - OpenAI: https://developers.openai.com/api/docs/pricing
@@ -34,11 +34,49 @@ export interface ProviderModelPricingMap {
 // ============================================================================
 
 export const BUILTIN_PRICING_META = {
-  pricingLastUpdated: "2026-05-29",
-  metadataLastUpdated: "2026-05-29",
+  pricingLastUpdated: "2026-10-05",
+  metadataLastUpdated: "2026-10-05",
+  baselineLastUpdated: "2026-05-29",
   source: "Provider official pricing pages",
-  notes: "Manually maintained. Report stale prices: https://github.com/tongsh6/opencode-token-tracker/issues/new",
+  notes: "Partial refresh: DeepSeek Flash/Pro and Kimi K2.7 Code only. Other entries retain the baseline audit date. Manually maintained; recent audits do not guarantee unchanged prices.",
 } as const
+
+export interface BuiltinPricingAudit {
+  reviewedAt: string
+  expiresAt?: string
+  basis?: "peak"
+  exactOrPrefixed?: boolean
+  sourceUrl?: string
+}
+
+export type PricingFreshness = "recent" | "stale" | "expired" | "unknown"
+export const PRICING_STALE_AFTER_DAYS = 90
+
+const DEEPSEEK_PEAK_AUDIT: BuiltinPricingAudit = {
+  reviewedAt: "2026-10-05",
+  basis: "peak",
+  exactOrPrefixed: true,
+  sourceUrl: "https://api-docs.deepseek.com/quick_start/pricing/",
+}
+const DEEPSEEK_LEGACY_AUDIT: BuiltinPricingAudit = {
+  reviewedAt: "2026-05-29",
+  expiresAt: "2026-07-24T16:00:00Z",
+  sourceUrl: "https://api-docs.deepseek.com/news/news260424/",
+}
+
+export const BUILTIN_PRICING_AUDITS: Record<string, BuiltinPricingAudit> = {
+  "deepseek-flash": DEEPSEEK_PEAK_AUDIT,
+  "deepseek-v4-flash": DEEPSEEK_PEAK_AUDIT,
+  "deepseek-v4-flash-vision-exp": DEEPSEEK_PEAK_AUDIT,
+  "deepseek-v4-pro": DEEPSEEK_PEAK_AUDIT,
+  "deepseek-chat": DEEPSEEK_LEGACY_AUDIT,
+  "deepseek-reasoner": DEEPSEEK_LEGACY_AUDIT,
+  "kimi-k2.7-code": {
+    reviewedAt: "2026-10-05",
+    exactOrPrefixed: true,
+    sourceUrl: "https://www.kimi.ai/resources/kimi-k2-7-code",
+  },
+}
 
 export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   // Anthropic Claude (https://platform.claude.com/docs/en/about-claude/pricing)
@@ -98,13 +136,18 @@ export const BUILTIN_PRICING: Record<string, ModelPricing> = {
   "o1-mini": { input: 1.1, output: 4.4, cacheRead: 0.55 },
 
   // DeepSeek (https://api-docs.deepseek.com/quick_start/pricing)
-  // DeepSeek-V4 Flash compatibility pricing for deepseek-chat / deepseek-reasoner.
-  // $0.14 input (cache miss), $0.0028 input (cache hit), $0.28 output
+  // 已停用的旧别名保留历史估算值，由核验元数据提示到期。
   "deepseek-chat": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
   "deepseek-reasoner": { input: 0.14, output: 0.28, cacheRead: 0.0028 },
-  // DeepSeek-V4-Pro discounted pricing, current until 2026-05-31 15:59 UTC.
-  // $0.435 input (cache miss), $0.003625 input (cache hit), $0.87 output
-  "deepseek-v4-pro": { input: 0.435, output: 0.87, cacheRead: 0.003625 },
+  // 采用峰时保守估算；谷时价格为一半，不在运行时自动判断时段或节假日。
+  // V4 Flash 旧名目前由 V4.1 Flash 服务，按当前 Flash 价格估算。
+  "deepseek-flash": { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
+  "deepseek-v4-flash": { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
+  "deepseek-v4-flash-vision-exp": { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
+  "deepseek-v4-pro": { input: 1.32, output: 3.96, cacheRead: 0.044, cacheWrite: 0 },
+
+  // Kimi 官方 API 按量价格，不适用于 Kimi Code 订阅或未核价的高速变体。
+  "kimi-k2.7-code": { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0 },
 
   // Google Gemini (https://cloud.google.com/vertex-ai/generative-ai/pricing)
   // Standard global text pricing at <=200K input tokens where tiered pricing applies.
@@ -552,6 +595,53 @@ export interface BudgetStatus {
   warning: boolean
 }
 
+export interface MessageToastInput {
+  messageTokens: number
+  messageCost: number
+  sessionTokens: number
+  sessionCost: number
+  budget: BudgetStatus | null
+}
+
+export interface MessageToastBody {
+  title: string
+  message: string
+  variant: "info" | "warning" | "error"
+}
+
+export function formatBudgetMessage(status: BudgetStatus): string {
+  const pct = Math.round(status.percentage * 100)
+  const periodLabel = status.period.charAt(0).toUpperCase() + status.period.slice(1)
+  return `${periodLabel}: ${formatCost(status.spent)}/${formatCost(status.limit)} (${pct}%)`
+}
+
+export function buildMessageToast(input: MessageToastInput): MessageToastBody {
+  if (input.budget?.exceeded) {
+    return {
+      title: "⚠️ Budget exceeded!",
+      message: formatBudgetMessage(input.budget),
+      variant: "error",
+    }
+  }
+
+  const title = `${formatTokens(input.messageTokens)} tokens`
+  const messageCost = formatCost(input.messageCost)
+
+  if (input.budget?.warning) {
+    return {
+      title,
+      message: `${messageCost} | Session: ${formatTokens(input.sessionTokens)} · ${formatBudgetMessage(input.budget)}`,
+      variant: "warning",
+    }
+  }
+
+  return {
+    title,
+    message: `${messageCost} | Session: ${formatTokens(input.sessionTokens)} · ${formatCost(input.sessionCost)}`,
+    variant: "info",
+  }
+}
+
 export interface BudgetSpentSnapshot {
   dailySpent: number
   weeklySpent: number
@@ -592,6 +682,38 @@ export function evaluateBudgetStatus(
   return candidates[0] ?? null
 }
 
+// 计价、来源标签和时效诊断复用同一内置匹配入口，防止三者口径分叉。
+function findBuiltinPricingKey(model: string): string | undefined {
+  if (BUILTIN_PRICING[model]) return model
+  const modelLower = model.toLowerCase()
+  const keys = Object.keys(BUILTIN_PRICING)
+    .filter(key => key !== "_default")
+    .sort((a, b) => b.length - a.length)
+  return keys.find(key => BUILTIN_PRICING_AUDITS[key]?.exactOrPrefixed
+    ? modelLower === key || modelLower.endsWith(`/${key}`)
+    : modelLower.includes(key.toLowerCase()))
+}
+
+export function getBuiltinPricingAudit(model: string): BuiltinPricingAudit | undefined {
+  const key = findBuiltinPricingKey(model)
+  if (!key || key === "_default") return undefined
+  return BUILTIN_PRICING_AUDITS[key] ?? { reviewedAt: BUILTIN_PRICING_META.baselineLastUpdated }
+}
+
+export function getPricingFreshness(audit: BuiltinPricingAudit, now: number = Date.now()): PricingFreshness {
+  const reviewedAt = Date.parse(`${audit.reviewedAt}T00:00:00Z`)
+  const expiresAt = audit.expiresAt ? Date.parse(audit.expiresAt) : undefined
+  if (!Number.isFinite(now) || !Number.isFinite(reviewedAt) || reviewedAt > now
+    || (expiresAt !== undefined && !Number.isFinite(expiresAt))) return "unknown"
+  if (expiresAt !== undefined && now >= expiresAt) return "expired"
+  return now - reviewedAt > PRICING_STALE_AFTER_DAYS * 86_400_000 ? "stale" : "recent"
+}
+
+export function getEffectivePricingAudit(config: TrackerConfig, model: string, provider: string): BuiltinPricingAudit | undefined {
+  // 用户已覆盖价格时，不应拿未使用的内置日期给用户配置打上过期标签。
+  return resolvePricingStatus(config, model, provider) === "built-in" ? getBuiltinPricingAudit(model) : undefined
+}
+
 export function resolvePricingStatus(
   config: TrackerConfig,
   model: string,
@@ -607,21 +729,8 @@ export function resolvePricingStatus(
     return "model cfg"
   }
 
-  // Step 3: Exact-match in BUILTIN_PRICING -> "built-in"
-  if (BUILTIN_PRICING[model]) {
-    return "built-in"
-  }
-
-  // Step 4: Partial-match in BUILTIN_PRICING (sorted by key length desc) -> "built-in"
-  const modelLower = model.toLowerCase()
-  const sortedBuiltin = Object.keys(BUILTIN_PRICING)
-    .filter(k => k !== "_default")
-    .sort((a, b) => b.length - a.length)
-  for (const key of sortedBuiltin) {
-    if (modelLower.includes(key.toLowerCase())) {
-      return "built-in"
-    }
-  }
+  // Step 3/4: 内置精确匹配，其次按型号规则匹配。
+  if (findBuiltinPricingKey(model)) return "built-in"
 
   // Step 5: Partial-match in config.models (sorted by key length desc) -> "model cfg"
   if (findModelConfigPricing(config.models, model, provider, true)) {
@@ -681,18 +790,8 @@ function getModelPricing(model: string, provider: string, config?: TrackerConfig
       return configuredPricing
     }
   }
-  if (BUILTIN_PRICING[model]) {
-    return BUILTIN_PRICING[model]
-  }
-  const modelLower = model.toLowerCase()
-  const sortedKeys = Object.keys(BUILTIN_PRICING)
-    .filter(k => k !== "_default")
-    .sort((a, b) => b.length - a.length)
-  for (const key of sortedKeys) {
-    if (modelLower.includes(key.toLowerCase())) {
-      return BUILTIN_PRICING[key]
-    }
-  }
+  const builtinKey = findBuiltinPricingKey(model)
+  if (builtinKey) return BUILTIN_PRICING[builtinKey]
   if (config && config.models) {
     const partialUserPricing = findModelConfigPricing(config.models, model, provider, true)
     if (partialUserPricing) {
@@ -740,6 +839,178 @@ export function calculateCost(
   const outputCost = (output / 1_000_000) * pricing.output
   const cacheReadCost = (cacheRead / 1_000_000) * finalCacheReadPrice
   const cacheWriteCost = (cacheWrite / 1_000_000) * finalCacheWritePrice
-  
+
   return inputCost + outputCost + cacheReadCost + cacheWriteCost
+}
+
+// ============================================================================
+// Session Metadata & Display
+// ============================================================================
+
+export interface SessionMeta {
+  sessionId: string
+  title?: string
+  parentID?: string
+  directory?: string
+  _ts: number
+}
+
+/** Shape of a raw line in sessions.jsonl (all fields optional/untrusted). */
+export interface SessionMetaRecord {
+  sessionId?: string
+  title?: string
+  parentID?: string
+  directory?: string
+  _ts?: number
+}
+
+/**
+ * Resolve a session id to its root by following parentID links.
+ * Stops when no parent is known or a cycle is detected, so an unknown
+ * parent still yields a stable root id to group descendants under.
+ */
+export function resolveRootSession(
+  sessionId: string,
+  parentOf: Map<string, string | undefined>,
+): string {
+  let current = sessionId
+  const seen = new Set<string>()
+  while (true) {
+    const parent = parentOf.get(current)
+    if (!parent || parent === current || seen.has(parent)) {
+      return current
+    }
+    seen.add(current)
+    current = parent
+  }
+}
+
+/** Per-session usage counters, summed across a root session's whole subtree. */
+export interface SessionAggregate {
+  totalInput: number
+  totalOutput: number
+  totalReasoning: number
+  totalCacheRead: number
+  totalCacheWrite: number
+  totalCost: number
+  messageCount: number
+  startTime: number
+}
+
+/**
+ * Sum per-session stats across every session that resolves to the same root as
+ * `currentSessionId`, rolling a sub-agent session's usage up into its top-level
+ * (parent) session for toast / idle display.
+ *
+ * Aggregation happens at read time: a `parentID` learned only after a session's
+ * first message still merges on the next call (eventual consistency), so stored
+ * per-session stats never need re-bucketing. `startTime` is the earliest among
+ * the grouped sessions so duration reflects the whole task.
+ */
+export function aggregateRootSession(
+  sessionStats: ReadonlyMap<string, SessionAggregate>,
+  parentOf: Map<string, string | undefined>,
+  currentSessionId: string,
+): SessionAggregate {
+  const root = resolveRootSession(currentSessionId, parentOf)
+  const agg: SessionAggregate = {
+    totalInput: 0,
+    totalOutput: 0,
+    totalReasoning: 0,
+    totalCacheRead: 0,
+    totalCacheWrite: 0,
+    totalCost: 0,
+    messageCount: 0,
+    startTime: 0,
+  }
+
+  let earliest = Infinity
+  for (const [sessionId, stats] of sessionStats) {
+    if (resolveRootSession(sessionId, parentOf) !== root) continue
+    agg.totalInput += stats.totalInput
+    agg.totalOutput += stats.totalOutput
+    agg.totalReasoning += stats.totalReasoning
+    agg.totalCacheRead += stats.totalCacheRead
+    agg.totalCacheWrite += stats.totalCacheWrite
+    agg.totalCost += stats.totalCost
+    agg.messageCount += stats.messageCount
+    if (stats.startTime < earliest) earliest = stats.startTime
+  }
+
+  agg.startTime = Number.isFinite(earliest) ? earliest : 0
+  return agg
+}
+
+/**
+ * Merge raw sessions.jsonl records into one SessionMeta per session id.
+ * Later non-empty fields win; empty/whitespace titles never clobber a real
+ * one (session.created may arrive before a title is generated).
+ */
+export function mergeSessionMeta(records: SessionMetaRecord[]): Map<string, SessionMeta> {
+  const map = new Map<string, SessionMeta>()
+  for (const r of records) {
+    const id = r.sessionId
+    if (!id) continue
+    const existing = map.get(id) ?? { sessionId: id, _ts: 0 }
+    const title = typeof r.title === "string" ? r.title.trim() : ""
+    if (title) existing.title = title
+    if (r.parentID) existing.parentID = r.parentID
+    if (r.directory) existing.directory = r.directory
+    if (typeof r._ts === "number" && r._ts > existing._ts) existing._ts = r._ts
+    map.set(id, existing)
+  }
+  return map
+}
+
+/** Truncate a label to maxWidth, appending an ellipsis when it overflows. */
+export function truncateLabel(str: string, maxWidth: number): string {
+  if (str.length <= maxWidth) return str
+  if (maxWidth <= 1) return "…"
+  return `${str.slice(0, maxWidth - 1)}…`
+}
+
+/** Distinctive short code for a session id (its tail), for fallback display. */
+export function shortSessionCode(sessionId?: string): string {
+  if (!sessionId) return "unknown"
+  return sessionId.length > 12 ? `…${sessionId.slice(-10)}` : sessionId
+}
+
+/** Pick a human label for a (root) session: title when known, else short code. */
+export function sessionDisplayLabel(
+  rootId: string,
+  meta: SessionMeta | undefined,
+  maxWidth: number,
+): string {
+  const title = meta?.title?.trim()
+  if (title) return truncateLabel(title, maxWidth)
+  return shortSessionCode(rootId)
+}
+
+/** Subset of an OpenCode Session event payload the tracker cares about. */
+export interface SessionInfoInput {
+  id?: string
+  title?: string
+  parentID?: string
+  directory?: string
+}
+
+/**
+ * Build a session metadata record to persist, or null when there is nothing
+ * worth recording yet (no title and no parent link). Title is trimmed; a
+ * parentID is recorded even before a title exists so child sessions can be
+ * rolled up into their parent.
+ */
+export function buildSessionRecord(info: SessionInfoInput): (SessionMetaRecord & { sessionId: string }) | null {
+  const sessionId = info.id
+  if (!sessionId) return null
+
+  const title = typeof info.title === "string" ? info.title.trim() : ""
+  const parentID = info.parentID
+  if (!title && !parentID) return null
+
+  const record: SessionMetaRecord & { sessionId: string } = { sessionId }
+  if (title) record.title = title
+  if (parentID) record.parentID = parentID
+  if (info.directory) record.directory = info.directory
+  return record
 }

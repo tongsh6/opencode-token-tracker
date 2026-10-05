@@ -1,8 +1,11 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import type { ModelPricing, TrackerConfig, BudgetStatus, BudgetSpentSnapshot } from "./lib/shared.js"
+import type { ModelPricing, TrackerConfig, BudgetStatus, BudgetSpentSnapshot, SessionInfoInput } from "./lib/shared.js"
 import {
   BUILTIN_PRICING,
   DEFAULT_CONFIG,
+  aggregateRootSession,
+  buildMessageToast,
+  buildSessionRecord,
   calculateCost,
   evaluateBudgetStatus,
   findModelConfigPricing,
@@ -15,15 +18,17 @@ import {
   hasBillableTokenUsage,
   validateConfig,
 } from "./lib/shared.js"
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs"
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs"
 import { open, type FileHandle } from "fs/promises"
 import { join } from "path"
 import { homedir } from "os"
+import { createInterface } from "node:readline"
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
 const LOG_DIR = join(CONFIG_DIR, "logs", "token-tracker")
 const LOG_FILE = join(LOG_DIR, "tokens.jsonl")
+const SESSIONS_LOG_FILE = join(LOG_DIR, "sessions.jsonl")
 
 // ============================================================================
 // Configuration
@@ -92,6 +97,9 @@ interface SessionStats {
 
 const sessionStats = new Map<string, SessionStats>()
 
+// 从侧车日志和实时会话事件学习父子关系，展示时归并至顶层任务。
+const parentOf = new Map<string, string | undefined>()
+
 function getOrCreateSessionStats(sessionId: string): SessionStats {
   if (!sessionStats.has(sessionId)) {
     sessionStats.set(sessionId, {
@@ -106,6 +114,29 @@ function getOrCreateSessionStats(sessionId: string): SessionStats {
     })
   }
   return sessionStats.get(sessionId)!
+}
+
+function rememberSessionParent(info: SessionInfoInput): void {
+  // 仅标题更新不应抹去已有关系，与 CLI 的元数据合并口径一致。
+  if (!info.id || !info.parentID) return
+  parentOf.set(info.id, info.parentID)
+}
+
+async function restoreSessionParents(): Promise<void> {
+  try {
+    const lines = createInterface({ input: createReadStream(SESSIONS_LOG_FILE), crlfDelay: Infinity })
+    for await (const line of lines) {
+      try {
+        const record = JSON.parse(line)
+        if (record?.type !== "session" || typeof record.sessionId !== "string" || typeof record.parentID !== "string") continue
+        rememberSessionParent({ id: record.sessionId, parentID: record.parentID })
+      } catch {
+        // 跳过损坏行，后续有效记录仍可恢复关系。
+      }
+    }
+  } catch {
+    // 无历史元数据或读取失败时，继续通过实时会话事件学习关系。
+  }
 }
 
 // ============================================================================
@@ -137,10 +168,33 @@ function ensureLogDir() {
   }
 }
 
-function logJson(data: Record<string, unknown>) {
+function logJson(data: Record<string, unknown>, recordedAt: number) {
   ensureLogDir()
-  const entry = JSON.stringify({ ...data, _ts: Date.now() }) + "\n"
+  const entry = JSON.stringify({ ...data, _ts: recordedAt }) + "\n"
   appendFileSync(LOG_FILE, entry)
+}
+
+// Append-only sidecar of session metadata (id/title/parentID/directory) used
+// by the CLI to label `--by session` rows and roll child sessions up to their
+// parent. Per-process dedup keeps writes to actual title/parent changes only.
+const seenSessions = new Map<string, string>()
+
+function logSessionMeta(info: SessionInfoInput): void {
+  const record = buildSessionRecord(info)
+  if (!record) return
+
+  const signature = `${record.title ?? ""}|${record.parentID ?? ""}|${record.directory ?? ""}`
+  if (seenSessions.get(record.sessionId) === signature) return
+  seenSessions.set(record.sessionId, signature)
+
+  // Bound memory the same way the message dedup set does.
+  if (seenSessions.size > 10000) {
+    const stale = Array.from(seenSessions.keys()).slice(0, 5000)
+    for (const key of stale) seenSessions.delete(key)
+  }
+
+  ensureLogDir()
+  appendFileSync(SESSIONS_LOG_FILE, JSON.stringify({ type: "session", ...record, _ts: Date.now() }) + "\n")
 }
 
 // ============================================================================
@@ -353,18 +407,15 @@ async function initBudgetTracker(): Promise<void> {
   budgetTracker.initialized = true
 }
 
-/**
- * Accumulate cost into budgetTracker after a new token entry is logged.
- */
-function accumulateBudget(cost: number): void {
+// 在写入当前消息之前切换周期，避免重载结果已经包含当前消耗。
+function refreshBudgetPeriods(recordedAt: number): void {
   if (!budgetTracker.initialized) return
 
-  const now = new Date()
+  const now = new Date(recordedAt)
   const currentDayStart = getStartOfDay(now)
   const currentWeekStart = getStartOfWeek(now)
   const currentMonthStart = getStartOfMonth(now)
 
-  // Period rollover detection — reset and reload from file for accuracy
   if (currentDayStart !== budgetTracker.dayStart) {
     budgetTracker.dayStart = currentDayStart
     budgetTracker.dailySpent = loadCostsSince(currentDayStart)
@@ -377,6 +428,11 @@ function accumulateBudget(cost: number): void {
     budgetTracker.monthStart = currentMonthStart
     budgetTracker.monthlySpent = loadCostsSince(currentMonthStart)
   }
+}
+
+// 只在日志成功写入后累计；周期判断和日志使用同一个 recordedAt。
+function accumulateBudget(cost: number): void {
+  if (!budgetTracker.initialized) return
 
   budgetTracker.dailySpent += cost
   budgetTracker.weeklySpent += cost
@@ -390,12 +446,6 @@ function checkBudgetStatus(): BudgetStatus | null {
     monthlySpent: budgetTracker.monthlySpent,
   }
   return evaluateBudgetStatus(config.budget, snapshot, budgetTracker.initialized)
-}
-
-function formatBudgetMessage(status: BudgetStatus): string {
-  const pct = Math.round(status.percentage * 100)
-  const periodLabel = status.period.charAt(0).toUpperCase() + status.period.slice(1)
-  return `${periodLabel}: ${formatCost(status.spent)}/${formatCost(status.limit)} (${pct}%)`
 }
 
 // ============================================================================
@@ -435,6 +485,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
     
     // Initialize in-memory budget tracker (reads JSONL once)
     await initBudgetTracker()
+    await restoreSessionParents()
 
     // 不再写 type:"init" 标记：OpenCode 会在多个子进程（LSP、工具 runner 等）独立加载
     // plugin，每次启动会向 JSONL 写多份重复的 init 行，污染日志且无计费价值。
@@ -502,6 +553,9 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             stats.totalCost += cost
             stats.messageCount += 1
 
+            const recordedAt = Date.now()
+            refreshBudgetPeriods(recordedAt)
+
             // Log to file
             logJson({
               type: "tokens",
@@ -517,7 +571,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
               cacheRead,
               cacheWrite,
               cost,
-            })
+            }, recordedAt)
 
             // Accumulate cost into in-memory budget tracker
             accumulateBudget(cost)
@@ -525,32 +579,25 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             // Show toast for this message
             if (config.toast.enabled) {
               const totalTokens = input + output
-              
+
+              // Roll sub-agent sessions up to their top-level session so
+              // `Session:` reflects the whole task, not just this agent's slice.
+              const rootStats = aggregateRootSession(sessionStats, parentOf, sessionId)
+
               // Check budget status
               const budgetStatus = checkBudgetStatus()
-              
-              let title = `${formatTokens(totalTokens)} tokens`
-              let message = `${formatCost(cost)} | Session: ${formatCost(stats.totalCost)}`
-              let variant: "info" | "warning" | "error" = "info"
-              
-              // Add budget warning/alert if applicable
-              if (budgetStatus) {
-                if (budgetStatus.exceeded) {
-                  title = `⚠️ Budget exceeded!`
-                  message = formatBudgetMessage(budgetStatus)
-                  variant = "error"
-                } else if (budgetStatus.warning) {
-                  message = `${formatCost(cost)} | ${formatBudgetMessage(budgetStatus)}`
-                  variant = "warning"
-                }
-              }
+              const toast = buildMessageToast({
+                messageTokens: totalTokens,
+                messageCost: cost,
+                sessionTokens: rootStats.totalInput + rootStats.totalOutput,
+                sessionCost: rootStats.totalCost,
+                budget: budgetStatus,
+              })
               
               try {
                 await client.tui.showToast({
                   body: {
-                    title,
-                    message,
-                    variant,
+                    ...toast,
                     duration: budgetStatus?.exceeded ? 5000 : config.toast.duration,
                   },
                 })
@@ -567,22 +614,33 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             const sessionId = props?.sessionID
             if (!sessionId) return
 
-            const stats = sessionStats.get(sessionId)
-            if (!stats || stats.messageCount === 0) return
-
-            const duration = Math.round((Date.now() - stats.startTime) / 1000 / 60)
-            const totalTokens = stats.totalInput + stats.totalOutput
+            // 主会话可能尚未产生消息，是否展示摘要应由整组消耗决定。
+            const rootStats = aggregateRootSession(sessionStats, parentOf, sessionId)
+            if (rootStats.messageCount === 0) return
+            const duration = Math.round((Date.now() - rootStats.startTime) / 1000 / 60)
+            const totalTokens = rootStats.totalInput + rootStats.totalOutput
 
             try {
               await client.tui.showToast({
                 body: {
                   title: `Session: ${formatTokens(totalTokens)} tokens`,
-                  message: `${formatCost(stats.totalCost)} | ${stats.messageCount} msgs | ${duration}min`,
+                  message: `${formatCost(rootStats.totalCost)} | ${rootStats.messageCount} msgs | ${duration}min`,
                   variant: "info",
                   duration: 5000,
                 },
               })
             } catch {}
+          }
+
+          // Capture session metadata (title/parentID) for the CLI session view
+          // and the in-memory parent map used to roll sub-agent usage up to the
+          // top-level session in toasts.
+          if (event.type === "session.created" || event.type === "session.updated") {
+            const props = event.properties as { info?: SessionInfoInput } | undefined
+            if (props?.info) {
+              rememberSessionParent(props.info)
+              logSessionMeta(props.info)
+            }
           }
         } catch {}
       },

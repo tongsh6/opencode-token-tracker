@@ -30,3 +30,7 @@ dogfood-artifacts/
 
 # OpenCode internal
 .omo/
+
+# AI 工具本地状态
+.claude
+.serena
