@@ -88,7 +88,7 @@ opencode-tokens today
 $0.023 | Session: 45.2K · $0.156
 ```
 
-> `Session:` 是整个顶层任务的累计 token 与成本。当主 agent 调起子 agent 时，子 agent 的消耗会归并到其父会话，因此主、子 agent 的 toast 会收敛到同一个任务总额。
+> `Session:` 将当前插件进程收到的主、子 agent 消耗归并到顶层任务。启动时从 `sessions.jsonl` 恢复父子关系，并通过会话事件更新；晚到的关系在下一次提示中生效。重启后不会回放历史 token 累计；完整日志统计请用 `opencode-tokens --by session`，逐个会话明细请用 `--by raw-session`。
 
 配置预算后，超阈值会显示预警：
 

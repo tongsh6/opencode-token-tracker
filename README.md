@@ -89,7 +89,7 @@ Once installed, you'll see Toast notifications after each AI response:
 $0.023 | Session: 45.2K · $0.156
 ```
 
-> `Session:` is the cumulative token and cost total of the whole top-level task. When the main agent spawns sub-agents, their usage is rolled up into the parent session, so the main and sub-agent toasts converge on the same task total.
+> `Session:` rolls usage received by the current plugin process up to the top-level task, including its sub-agents. Parent links are restored from `sessions.jsonl` on startup and updated by session events; links learned later take effect on the next toast. Historical token totals are not replayed after a restart. Use `opencode-tokens --by session` for totals from persisted logs, or `--by raw-session` to inspect individual sessions.
 
 When budget limits are configured, you'll see warnings:
 

@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- (#83) The toast `Session:` total and the idle session summary now roll sub-agent sessions up into their top-level session, so the main and sub-agent toasts converge on the same whole-task total instead of each counting only its own session. Rollup happens at display time from in-memory parent links learned via `session.created` / `session.updated`, so a parent link learned after a sub-agent's first message still merges on the next toast.
+- (#83) Toast 和 idle 摘要按顶层任务归并当前插件进程收到的主、子 agent 消耗，并显示累计 token。启动时恢复持久化的父子关系，标题更新保留已有关系，晚到关系在下次展示生效；主会话尚无自身消息时也能显示子会话汇总。历史 token 累计仍由 CLI 从日志查询。
 - 修复跨日、周、月后的首笔消耗被预算重复累计、提前触发预警的问题；周期重载在当前记录写入前完成，并与日志共用时间戳。
 
 ## [1.7.1] - 2026-05-30

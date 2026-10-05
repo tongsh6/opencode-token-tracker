@@ -18,10 +18,11 @@ import {
   hasBillableTokenUsage,
   validateConfig,
 } from "./lib/shared.js"
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs"
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs"
 import { open, type FileHandle } from "fs/promises"
 import { join } from "path"
 import { homedir } from "os"
+import { createInterface } from "node:readline"
 
 const CONFIG_DIR = join(homedir(), ".config", "opencode")
 const CONFIG_FILE = join(CONFIG_DIR, "token-tracker.json")
@@ -96,12 +97,7 @@ interface SessionStats {
 
 const sessionStats = new Map<string, SessionStats>()
 
-// In-memory session parent links (sessionId -> parentID) learned from
-// session.created / session.updated events. Used to roll a sub-agent session's
-// usage up into its top-level (parent) session when displaying toasts, so the
-// `Session:` total reflects the whole task rather than one agent's slice. Grows
-// one entry per session alongside sessionStats; the durable form for the CLI is
-// sessions.jsonl. The persisted parentID is recorded separately by logSessionMeta.
+// 从侧车日志和实时会话事件学习父子关系，展示时归并至顶层任务。
 const parentOf = new Map<string, string | undefined>()
 
 function getOrCreateSessionStats(sessionId: string): SessionStats {
@@ -121,8 +117,26 @@ function getOrCreateSessionStats(sessionId: string): SessionStats {
 }
 
 function rememberSessionParent(info: SessionInfoInput): void {
-  if (!info.id) return
+  // 仅标题更新不应抹去已有关系，与 CLI 的元数据合并口径一致。
+  if (!info.id || !info.parentID) return
   parentOf.set(info.id, info.parentID)
+}
+
+async function restoreSessionParents(): Promise<void> {
+  try {
+    const lines = createInterface({ input: createReadStream(SESSIONS_LOG_FILE), crlfDelay: Infinity })
+    for await (const line of lines) {
+      try {
+        const record = JSON.parse(line)
+        if (record?.type !== "session" || typeof record.sessionId !== "string" || typeof record.parentID !== "string") continue
+        rememberSessionParent({ id: record.sessionId, parentID: record.parentID })
+      } catch {
+        // 跳过损坏行，后续有效记录仍可恢复关系。
+      }
+    }
+  } catch {
+    // 无历史元数据或读取失败时，继续通过实时会话事件学习关系。
+  }
 }
 
 // ============================================================================
@@ -471,6 +485,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
     
     // Initialize in-memory budget tracker (reads JSONL once)
     await initBudgetTracker()
+    await restoreSessionParents()
 
     // 不再写 type:"init" 标记：OpenCode 会在多个子进程（LSP、工具 runner 等）独立加载
     // plugin，每次启动会向 JSONL 写多份重复的 init 行，污染日志且无计费价值。
@@ -599,12 +614,9 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             const sessionId = props?.sessionID
             if (!sessionId) return
 
-            const stats = sessionStats.get(sessionId)
-            if (!stats || stats.messageCount === 0) return
-
-            // Summarize the whole task: roll child sessions up to the root and
-            // measure duration from the earliest session in the group.
+            // 主会话可能尚未产生消息，是否展示摘要应由整组消耗决定。
             const rootStats = aggregateRootSession(sessionStats, parentOf, sessionId)
+            if (rootStats.messageCount === 0) return
             const duration = Math.round((Date.now() - rootStats.startTime) / 1000 / 60)
             const totalTokens = rootStats.totalInput + rootStats.totalOutput
 
