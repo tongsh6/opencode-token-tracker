@@ -12,6 +12,7 @@
 | [issue-60-63-plan-review-v3.md](issue-60-63-plan-review-v3.md) | #60-#63 implementation plan v3 review |
 | [issue-60-63-implementation-plan.md](issue-60-63-implementation-plan.md) | #60-#63 最终实现计划 |
 | [pricing-audit-2026-05-29.md](pricing-audit-2026-05-29.md) | 2026-05-29 内置定价表人工核对记录 |
+| [pricing-audit-2026-10-05.md](pricing-audit-2026-10-05.md) | DeepSeek/Kimi 局部核价、峰时估算和逐型号时效说明 |
 
 ## 适用场景
 

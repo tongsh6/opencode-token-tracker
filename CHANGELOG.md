@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- 为内置定价增加逐型号核验日期和已知有效期；`pricing` / `models` 展示时效，`doctor` 提示已使用的陈旧或到期价格。
+- 补齐 DeepSeek Flash 及官方兼容名、Kimi K2.7 Code 定价，并显式维护缓存单价。
 - `opencode-tokens --by session` now shows human-readable session titles, captured from OpenCode `session.created` / `session.updated` events into a new append-only `sessions.jsonl` sidecar log next to `tokens.jsonl`.
 - Added a `Last Active` column to the session breakdown so sessions can be told apart and ordered by recency at a glance.
 - (#83) Added `opencode-tokens --by raw-session`, a per-session view that keeps every session as its own row (sub-agent sessions are not rolled up into the parent) and labels each by its own title, for inspecting sub-agent usage detail alongside the rolled-up `--by session` view.
@@ -20,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- 将 DeepSeek V4 Pro 的到期促销价更新为峰时保守估算，并在 CLI 说明谷时差异；本次核价不刷新其他供应商日期，不重算历史记录。
+- 内置型号匹配由计价、来源标签和时效诊断共用；未核价的 DeepSeek/Kimi 变体不再误套已核验型号的单价，用户覆盖优先级保持原有口径。
 - (#83) Toast 和 idle 摘要按顶层任务归并当前插件进程收到的主、子 agent 消耗，并显示累计 token。启动时恢复持久化的父子关系，标题更新保留已有关系，晚到关系在下次展示生效；主会话尚无自身消息时也能显示子会话汇总。历史 token 累计仍由 CLI 从日志查询。
 - 修复跨日、周、月后的首笔消耗被预算重复累计、提前触发预警的问题；周期重载在当前记录写入前完成，并与日志共用时间戳。
 
