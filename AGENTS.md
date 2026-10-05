@@ -47,6 +47,8 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 5. 会话统计保存在内存 `Map<string, SessionStats>`
 6. 通过 `client.tui.showToast()` 输出提示
 
+会话父子关系通过 `session.created` / `session.updated` 写入 `sessions.jsonl`，启动时恢复。Toast 按根会话归并当前进程收到的消耗；CLI `--by session` 汇总历史日志，`--by raw-session` 保留各会话明细。
+
 ### 关键注意事项
 
 - `BUILTIN_PRICING` 已统一到 `lib/shared.ts`，修改定价只需改一处

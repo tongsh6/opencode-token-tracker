@@ -400,11 +400,23 @@ function loadSessionMeta(): Map<string, SessionMeta> {
   return mergeSessionMeta(records)
 }
 
-function printSessionBreakdown(entries: TokenEntry[], metaMap: Map<string, SessionMeta>) {
+function printSessionBreakdown(
+  entries: TokenEntry[],
+  metaMap: Map<string, SessionMeta>,
+  options: { rollUp?: boolean; heading?: string } = {},
+) {
+  const { rollUp = true, heading = "By Session" } = options
+
   const parentOf = new Map<string, string | undefined>()
   for (const meta of metaMap.values()) {
     parentOf.set(meta.sessionId, meta.parentID)
   }
+
+  // Rolled-up view groups every child/subagent session under its top-level
+  // session; the raw view keeps each session's own id so sub-agents stay
+  // visible as separate rows labelled by their own title.
+  const groupKeyOf = (sessionId: string) =>
+    rollUp ? resolveRootSession(sessionId, parentOf) : sessionId
 
   interface SessionRow {
     stats: Stats
@@ -413,11 +425,11 @@ function printSessionBreakdown(entries: TokenEntry[], metaMap: Map<string, Sessi
 
   const rows = new Map<string, SessionRow>()
   for (const e of entries) {
-    const root = resolveRootSession(e.sessionId ?? "unknown", parentOf)
-    let row = rows.get(root)
+    const key = groupKeyOf(e.sessionId ?? "unknown")
+    let row = rows.get(key)
     if (!row) {
       row = { stats: createEmptyStats(), lastActive: 0 }
-      rows.set(root, row)
+      rows.set(key, row)
     }
     row.stats.input += e.input ?? 0
     row.stats.output += e.output ?? 0
@@ -431,13 +443,13 @@ function printSessionBreakdown(entries: TokenEntry[], metaMap: Map<string, Sessi
 
   const sorted = Array.from(rows.entries()).sort((a, b) => b[1].stats.cost - a[1].stats.cost)
   if (sorted.length === 0) {
-    console.log(`\n  No data for By Session\n`)
+    console.log(`\n  No data for ${heading}\n`)
     return
   }
 
   const LABEL_MAX = 40
-  const labeled = sorted.map(([root, row]) => ({
-    label: sessionDisplayLabel(root, metaMap.get(root), LABEL_MAX),
+  const labeled = sorted.map(([key, row]) => ({
+    label: sessionDisplayLabel(key, metaMap.get(key), LABEL_MAX),
     lastActive: row.lastActive ? formatLastActive(row.lastActive) : "-",
     stats: row.stats,
   }))
@@ -451,7 +463,7 @@ function printSessionBreakdown(entries: TokenEntry[], metaMap: Map<string, Sessi
   const countWidth = 6
 
   console.log()
-  console.log(`  By Session`)
+  console.log(`  ${heading}`)
   console.log(`  ${"─".repeat(labelWidth + activeWidth + tokensWidth + costWidth + countWidth + 8)}`)
   console.log(
     `  ${padRight(labelHeader, labelWidth)}  ${padRight(activeHeader, activeWidth)}  ${padLeft("Tokens", tokensWidth)}  ${padLeft("Cost", costWidth)}  ${padLeft("Msgs", countWidth)}`
@@ -510,7 +522,7 @@ function printDailyBreakdown(entries: TokenEntry[]) {
 // Commands
 // ============================================================================
 
-const STATS_BREAKDOWNS = ["model", "agent", "provider", "day", "daily", "session", "all"] as const
+const STATS_BREAKDOWNS = ["model", "agent", "provider", "day", "daily", "session", "raw-session", "all"] as const
 type StatsBreakdown = typeof STATS_BREAKDOWNS[number]
 const STATS_PERIODS = ["today", "week", "month", "all"] as const
 type StatsPeriod = typeof STATS_PERIODS[number]
@@ -535,11 +547,11 @@ function getStatsBreakdown(flags: Map<string, string | boolean>): StatsBreakdown
   const shortValue = flagValue(flags, "b")
 
   if (flags.has("by") && !longValue) {
-    failCli("Missing value for --by", "Usage: opencode-tokens [today|week|month|all] --by model|agent|provider|daily|session|all")
+    failCli("Missing value for --by", "Usage: opencode-tokens [today|week|month|all] --by model|agent|provider|daily|session|raw-session|all")
     return undefined
   }
   if (flags.has("b") && !shortValue) {
-    failCli("Missing value for -b", "Usage: opencode-tokens [today|week|month|all] -b model|agent|provider|daily|session|all")
+    failCli("Missing value for -b", "Usage: opencode-tokens [today|week|month|all] -b model|agent|provider|daily|session|raw-session|all")
     return undefined
   }
 
@@ -547,7 +559,7 @@ function getStatsBreakdown(flags: Map<string, string | boolean>): StatsBreakdown
   if (!breakdown) return undefined
 
   if (!isStatsBreakdown(breakdown)) {
-    failCli(`Unsupported stats breakdown: ${breakdown}`, "Allowed breakdowns: model, agent, provider, daily, day, session, all")
+    failCli(`Unsupported stats breakdown: ${breakdown}`, "Allowed breakdowns: model, agent, provider, daily, day, session, raw-session, all")
     return undefined
   }
 
@@ -604,6 +616,9 @@ function cmdStats(period: StatsPeriod, breakdown?: StatsBreakdown) {
       break
     case "session":
       printSessionBreakdown(entries, loadSessionMeta())
+      break
+    case "raw-session":
+      printSessionBreakdown(entries, loadSessionMeta(), { rollUp: false, heading: "By Raw Session" })
       break
     case "all":
       printTable("By Model", groupBy(entries, (e) => e.model ?? "unknown"), "Model")
@@ -1548,7 +1563,8 @@ function cmdHelp() {
     month         Show this month's usage
     all           Show all-time usage (default)
 
-    --by <type>   Group by: model, agent, provider, session, daily, all
+    --by <type>   Group by: model, agent, provider, session, raw-session, daily, all
+                  (session = rolled up to top-level; raw-session = per session, sub-agents shown separately)
 
   Export Options:
     --format      csv (default) or json
@@ -1576,7 +1592,8 @@ function cmdHelp() {
     opencode-tokens                       # All-time summary
     opencode-tokens doctor                # Diagnose setup and logs
     opencode-tokens today --by model      # Today by model
-    opencode-tokens week --by session     # This week by session
+    opencode-tokens week --by session     # This week by top-level session
+    opencode-tokens --by raw-session      # Per session, sub-agents shown separately
     opencode-tokens trend --days 7        # 7-day cost trend
     opencode-tokens export --format csv   # Export all data as CSV
     opencode-tokens config set budget.daily 10  # Set daily budget to $10
@@ -1954,14 +1971,14 @@ function main() {
 
   if (command) {
     if (!isStatsPeriod(command)) {
-      failCli(`Unknown command or stats period: ${command}`, "Usage: opencode-tokens [today|week|month|all] [--by model|agent|provider|daily|session|all]")
+      failCli(`Unknown command or stats period: ${command}`, "Usage: opencode-tokens [today|week|month|all] [--by model|agent|provider|daily|session|raw-session|all]")
       return
     }
     period = command
 
     const extraArgs = parsed.positional.slice(1)
     if (extraArgs.length > 0) {
-      failCli(`Unexpected argument for stats command: ${extraArgs[0]}`, "Usage: opencode-tokens [today|week|month|all] [--by model|agent|provider|daily|session|all]")
+      failCli(`Unexpected argument for stats command: ${extraArgs[0]}`, "Usage: opencode-tokens [today|week|month|all] [--by model|agent|provider|daily|session|raw-session|all]")
       return
     }
   }

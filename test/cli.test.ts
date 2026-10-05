@@ -142,7 +142,7 @@ describe("CLI help and stats", () => {
     const invalidLong = run(["--by", "bananas"])
     assert.equal(invalidLong.status, 1)
     assert.ok(invalidLong.stderr.includes("Unsupported stats breakdown: bananas"))
-    assert.ok(invalidLong.stderr.includes("Allowed breakdowns: model, agent, provider, daily, day, session, all"))
+    assert.ok(invalidLong.stderr.includes("Allowed breakdowns: model, agent, provider, daily, day, session, raw-session, all"))
 
     const invalidPeriodLong = run(["today", "--by", "bananas"])
     assert.equal(invalidPeriodLong.status, 1)
@@ -637,6 +637,51 @@ describe("CLI session breakdown", () => {
       // Recent activity is shown compactly, not the verbose "less than 1m ago"
       assert.ok(res.stdout.includes("just now"))
       assert.ok(!res.stdout.includes("less than 1m ago"))
+    } finally {
+      rmSync(logsFile, { force: true })
+      rmSync(sessionsFile, { force: true })
+    }
+  })
+})
+
+describe("CLI raw-session breakdown", () => {
+  it("lists each session separately with its own title, without rolling sub-agents into the parent", () => {
+    const logsDir = join(tmpHome, ".config", "opencode", "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const sessionsFile = join(logsDir, "sessions.jsonl")
+
+    const now = Date.now()
+    const parentId = "ses_rawParentAAAAAAAA"
+    const childId = "ses_rawChildBBBBBBBB"
+    const orphanId = "ses_RAWZZZZZZZZ1234567890"
+
+    const tokenEntries = [
+      { type: "tokens", _ts: now, sessionId: parentId, input: 1000, output: 0, cost: 1, provider: "openai", model: "gpt-4o" },
+      { type: "tokens", _ts: now, sessionId: childId, input: 2000, output: 0, cost: 2, provider: "openai", model: "gpt-4o" },
+      { type: "tokens", _ts: now, sessionId: orphanId, input: 500, output: 0, cost: 0.5, provider: "openai", model: "gpt-4o" },
+    ]
+    writeFileSync(logsFile, `${tokenEntries.map((e) => JSON.stringify(e)).join("\n")}\n`)
+
+    const sessionRecords = [
+      { type: "session", sessionId: parentId, title: "Main task review", _ts: now },
+      { type: "session", sessionId: childId, parentID: parentId, title: "Oracle subagent check", _ts: now },
+    ]
+    writeFileSync(sessionsFile, `${sessionRecords.map((s) => JSON.stringify(s)).join("\n")}\n`)
+
+    try {
+      const res = run(["--by", "raw-session"])
+      assert.equal(res.status, 0)
+      assert.ok(res.stdout.includes("By Raw Session"))
+      assert.ok(res.stdout.includes("Last Active"))
+      // Parent shown on its own, NOT merged with the child: 1.0K / $1.00 / 1 msg
+      assert.match(res.stdout, /Main task review\s+.*\s+1\.0K\s+\$1\.00\s+1/)
+      // Child sub-agent shown as its own row with its own title (no rollup)
+      assert.match(res.stdout, /Oracle subagent check\s+.*\s+2\.0K\s+\$2\.00\s+1/)
+      // Orphan with no metadata still falls back to a distinctive short code
+      assert.ok(res.stdout.includes("…1234567890"))
+      // Must NOT roll the child up into a single $3.00 / 2 msgs parent row
+      assert.ok(!/Main task review.*\$3\.00\s+2/.test(res.stdout))
     } finally {
       rmSync(logsFile, { force: true })
       rmSync(sessionsFile, { force: true })

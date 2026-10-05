@@ -86,10 +86,19 @@ Once installed, you'll see Toast notifications after each AI response:
 
 ```
 12.5K tokens
-$0.023 | Session: $0.156
+$0.023 | Session: 45.2K · $0.156
 ```
 
+> `Session:` rolls usage received by the current plugin process up to the top-level task, including its sub-agents. Parent links are restored from `sessions.jsonl` on startup and updated by session events; links learned later take effect on the next toast. Historical token totals are not replayed after a restart. Use `opencode-tokens --by session` for totals from persisted logs, or `--by raw-session` to inspect individual sessions.
+
 When budget limits are configured, you'll see warnings:
+
+```
+12.5K tokens
+$0.023 | Session: 45.2K · Daily: $4.20/$5.00 (84%)
+```
+
+When a budget is exceeded, the toast switches to an alert:
 
 ```
 ⚠️ Budget exceeded!
@@ -194,7 +203,8 @@ Breakdown options (`--by`):
 - `agent` - Group by agent (e.g., sisyphus, coder)
 - `provider` - Group by provider (e.g., anthropic, openai)
 - `daily` - Show day-by-day breakdown
-- `session` - Group by session ID
+- `session` - Group by top-level session, rolling sub-agent sessions up into their parent (labelled by the parent's title)
+- `raw-session` - Group by each session id without rollup, so sub-agent sessions stay as separate rows labelled by their own title
 - `all` - Show all breakdowns
 
 ### Trend Chart

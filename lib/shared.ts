@@ -552,6 +552,53 @@ export interface BudgetStatus {
   warning: boolean
 }
 
+export interface MessageToastInput {
+  messageTokens: number
+  messageCost: number
+  sessionTokens: number
+  sessionCost: number
+  budget: BudgetStatus | null
+}
+
+export interface MessageToastBody {
+  title: string
+  message: string
+  variant: "info" | "warning" | "error"
+}
+
+export function formatBudgetMessage(status: BudgetStatus): string {
+  const pct = Math.round(status.percentage * 100)
+  const periodLabel = status.period.charAt(0).toUpperCase() + status.period.slice(1)
+  return `${periodLabel}: ${formatCost(status.spent)}/${formatCost(status.limit)} (${pct}%)`
+}
+
+export function buildMessageToast(input: MessageToastInput): MessageToastBody {
+  if (input.budget?.exceeded) {
+    return {
+      title: "⚠️ Budget exceeded!",
+      message: formatBudgetMessage(input.budget),
+      variant: "error",
+    }
+  }
+
+  const title = `${formatTokens(input.messageTokens)} tokens`
+  const messageCost = formatCost(input.messageCost)
+
+  if (input.budget?.warning) {
+    return {
+      title,
+      message: `${messageCost} | Session: ${formatTokens(input.sessionTokens)} · ${formatBudgetMessage(input.budget)}`,
+      variant: "warning",
+    }
+  }
+
+  return {
+    title,
+    message: `${messageCost} | Session: ${formatTokens(input.sessionTokens)} · ${formatCost(input.sessionCost)}`,
+    variant: "info",
+  }
+}
+
 export interface BudgetSpentSnapshot {
   dailySpent: number
   weeklySpent: number
@@ -784,6 +831,62 @@ export function resolveRootSession(
     seen.add(current)
     current = parent
   }
+}
+
+/** Per-session usage counters, summed across a root session's whole subtree. */
+export interface SessionAggregate {
+  totalInput: number
+  totalOutput: number
+  totalReasoning: number
+  totalCacheRead: number
+  totalCacheWrite: number
+  totalCost: number
+  messageCount: number
+  startTime: number
+}
+
+/**
+ * Sum per-session stats across every session that resolves to the same root as
+ * `currentSessionId`, rolling a sub-agent session's usage up into its top-level
+ * (parent) session for toast / idle display.
+ *
+ * Aggregation happens at read time: a `parentID` learned only after a session's
+ * first message still merges on the next call (eventual consistency), so stored
+ * per-session stats never need re-bucketing. `startTime` is the earliest among
+ * the grouped sessions so duration reflects the whole task.
+ */
+export function aggregateRootSession(
+  sessionStats: ReadonlyMap<string, SessionAggregate>,
+  parentOf: Map<string, string | undefined>,
+  currentSessionId: string,
+): SessionAggregate {
+  const root = resolveRootSession(currentSessionId, parentOf)
+  const agg: SessionAggregate = {
+    totalInput: 0,
+    totalOutput: 0,
+    totalReasoning: 0,
+    totalCacheRead: 0,
+    totalCacheWrite: 0,
+    totalCost: 0,
+    messageCount: 0,
+    startTime: 0,
+  }
+
+  let earliest = Infinity
+  for (const [sessionId, stats] of sessionStats) {
+    if (resolveRootSession(sessionId, parentOf) !== root) continue
+    agg.totalInput += stats.totalInput
+    agg.totalOutput += stats.totalOutput
+    agg.totalReasoning += stats.totalReasoning
+    agg.totalCacheRead += stats.totalCacheRead
+    agg.totalCacheWrite += stats.totalCacheWrite
+    agg.totalCost += stats.totalCost
+    agg.messageCount += stats.messageCount
+    if (stats.startTime < earliest) earliest = stats.startTime
+  }
+
+  agg.startTime = Number.isFinite(earliest) ? earliest : 0
+  return agg
 }
 
 /**

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `opencode-tokens --by session` now shows human-readable session titles, captured from OpenCode `session.created` / `session.updated` events into a new append-only `sessions.jsonl` sidecar log next to `tokens.jsonl`.
 - Added a `Last Active` column to the session breakdown so sessions can be told apart and ordered by recency at a glance.
+- (#83) Added `opencode-tokens --by raw-session`, a per-session view that keeps every session as its own row (sub-agent sessions are not rolled up into the parent) and labels each by its own title, for inspecting sub-agent usage detail alongside the rolled-up `--by session` view.
 
 ### Changed
 
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (#83) Toast 和 idle 摘要按顶层任务归并当前插件进程收到的主、子 agent 消耗，并显示累计 token。启动时恢复持久化的父子关系，标题更新保留已有关系，晚到关系在下次展示生效；主会话尚无自身消息时也能显示子会话汇总。历史 token 累计仍由 CLI 从日志查询。
 - 修复跨日、周、月后的首笔消耗被预算重复累计、提前触发预警的问题；周期重载在当前记录写入前完成，并与日志共用时间戳。
 
 ## [1.7.1] - 2026-05-30
