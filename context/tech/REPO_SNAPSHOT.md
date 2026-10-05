@@ -1,6 +1,6 @@
 # REPO SNAPSHOT
 
-更新时间：2026-05-30
+更新时间：2026-10-05
 
 ## 项目定位
 
@@ -28,6 +28,9 @@ bin/opencode-tokens.ts
 scripts/real-opencode-cli-smoke.mjs
 scripts/release.js
 test/shared.test.ts
+test/cli.test.ts
+test/session-display.test.ts
+test/plugin-budget.test.ts
 .github/workflows/ci.yml
 .github/workflows/release.yml
 token-tracker.example.json
@@ -50,9 +53,10 @@ context/
 
 - `index.ts`
   - 插件入口（`TokenTrackerPlugin`）
-  - 监听 `message.updated`、`session.idle`
+  - 监听 `message.updated`、`session.idle`，并通过 `session.created` / `session.updated` 记录会话元数据
   - 记录 JSONL 日志并管理会话内存统计
-  - 内存 `BudgetTracker` 累加器：初始化时读一次 JSONL，之后 budget 检查零文件 I/O
+  - 内存 `BudgetTracker` 累加器：初始化和周期切换时读取相关时间窗口，其余消息只做内存累计
+  - 周期重载在当前记录写入前完成，成功写入后再累计；周期判断与日志 `_ts` 共用时间戳，避免重复计数或午夜边界偏移
   - 触发 Toast 成本提示
 
 - `bin/opencode-tokens.ts`
@@ -60,6 +64,7 @@ context/
   - 读取同一份日志文件并执行聚合计算
   - 支持 stats、budget、pricing、models、doctor、config、export、trend 等本地分析命令
   - daily 分组使用本地自然日；日志加载使用 `hasBillableTokenUsage()` 纳入 cache-only 记录
+  - session 分组从 `sessions.jsonl` 读取标题与父子关系，按根会话汇总
 
 - `scripts/release.js`
   - 分段式 release controller：`check`、`prepare`、`tag`
@@ -108,3 +113,4 @@ node dist/bin/opencode-tokens.js doctor
 - CLI `budget` 命令使用 `loadEntries(since)` 仅加载相关周期数据
 - CLI 与插件的 token 记录准入必须继续复用 `hasBillableTokenUsage()`，避免 cache-only 记录在某一侧被漏统
 - 日期维度统计必须使用本地自然日口径；避免在 CLI breakdown 中重新引入 UTC `toISOString().slice(0, 10)` 分组
+- 预算回归测试通过插件事件入口验证日/周/月切换、未切换周期累计、日志失败及午夜写入边界；测试使用临时目录与隔离的时钟，不改动本机 OpenCode 数据

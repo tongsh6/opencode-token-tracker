@@ -41,7 +41,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 ### 数据流
 
 1. 监听 OpenCode 事件：`message.updated`、`session.idle`
-2. 使用 `messageId-input-output` 去重 token 记录
+2. 使用 `messageId-input-output-cacheRead-cacheWrite` 去重 token 记录
 3. 定价查找顺序：provider 覆盖 -> 用户 model 精确匹配 -> 内置精确匹配 -> 内置部分匹配 -> 用户 model 部分匹配 -> 默认值
 4. 持久化到 `~/.config/opencode/logs/token-tracker/tokens.jsonl`（JSONL）
 5. 会话统计保存在内存 `Map<string, SessionStats>`
@@ -51,7 +51,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 
 - `BUILTIN_PRICING` 已统一到 `lib/shared.ts`，修改定价只需改一处
 - `seen` 去重集合上限 10,000，避免内存持续增长
-- 预算检查会读取完整 JSONL，日志很大时需关注性能
+- 预算使用内存累计；初始化和周期切换时按时间窗口反向读取 JSONL。周期重载必须在当前记录写入前完成，写入成功后再累计当前消耗
 
 ## 6) 自动行为约定（Agent Runtime）
 
