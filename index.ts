@@ -139,9 +139,9 @@ function ensureLogDir() {
   }
 }
 
-function logJson(data: Record<string, unknown>) {
+function logJson(data: Record<string, unknown>, recordedAt: number) {
   ensureLogDir()
-  const entry = JSON.stringify({ ...data, _ts: Date.now() }) + "\n"
+  const entry = JSON.stringify({ ...data, _ts: recordedAt }) + "\n"
   appendFileSync(LOG_FILE, entry)
 }
 
@@ -378,18 +378,15 @@ async function initBudgetTracker(): Promise<void> {
   budgetTracker.initialized = true
 }
 
-/**
- * Accumulate cost into budgetTracker after a new token entry is logged.
- */
-function accumulateBudget(cost: number): void {
+// 在写入当前消息之前切换周期，避免重载结果已经包含当前消耗。
+function refreshBudgetPeriods(recordedAt: number): void {
   if (!budgetTracker.initialized) return
 
-  const now = new Date()
+  const now = new Date(recordedAt)
   const currentDayStart = getStartOfDay(now)
   const currentWeekStart = getStartOfWeek(now)
   const currentMonthStart = getStartOfMonth(now)
 
-  // Period rollover detection — reset and reload from file for accuracy
   if (currentDayStart !== budgetTracker.dayStart) {
     budgetTracker.dayStart = currentDayStart
     budgetTracker.dailySpent = loadCostsSince(currentDayStart)
@@ -402,6 +399,11 @@ function accumulateBudget(cost: number): void {
     budgetTracker.monthStart = currentMonthStart
     budgetTracker.monthlySpent = loadCostsSince(currentMonthStart)
   }
+}
+
+// 只在日志成功写入后累计；周期判断和日志使用同一个 recordedAt。
+function accumulateBudget(cost: number): void {
+  if (!budgetTracker.initialized) return
 
   budgetTracker.dailySpent += cost
   budgetTracker.weeklySpent += cost
@@ -527,6 +529,9 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
             stats.totalCost += cost
             stats.messageCount += 1
 
+            const recordedAt = Date.now()
+            refreshBudgetPeriods(recordedAt)
+
             // Log to file
             logJson({
               type: "tokens",
@@ -542,7 +547,7 @@ export const TokenTrackerPlugin: Plugin = async ({ directory, client }) => {
               cacheRead,
               cacheWrite,
               cost,
-            })
+            }, recordedAt)
 
             // Accumulate cost into in-memory budget tracker
             accumulateBudget(cost)
