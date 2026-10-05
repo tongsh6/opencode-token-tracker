@@ -592,6 +592,12 @@ describe("CLI pricing metadata and notice", () => {
     assert.ok(res.stdout.includes("Metadata last updated:"))
     assert.ok(res.stdout.includes("Source:"))
     assert.ok(res.stdout.includes("Fallback Pricing Notice:"))
+    assert.ok(res.stdout.includes("Partial refresh: DeepSeek Flash/Pro and Kimi K2.7 Code only"))
+    assert.ok(res.stdout.includes("Baseline audit:"))
+    assert.ok(res.stdout.includes("peak-rate estimate"))
+    assert.match(res.stdout, /deepseek-flash\s+\$0\.3\s+\$1\.2\s+\$0\.006\s+\$0\s+.*reviewed 2026-10-05/)
+    assert.match(res.stdout, /kimi-k2\.7-code\s+\$0\.95\s+\$4\s+\$0\.19\s+\$0\s+.*reviewed 2026-10-05/)
+    assert.match(res.stdout, /claude-sonnet-4\.6.*reviewed 2026-05-29/)
     assert.ok(res.stdout.includes("claude-sonnet-4.6"))
     assert.ok(res.stdout.includes("gpt-5.5"))
     assert.ok(res.stdout.includes("deepseek-v4-pro"))
@@ -685,6 +691,85 @@ describe("CLI raw-session breakdown", () => {
     } finally {
       rmSync(logsFile, { force: true })
       rmSync(sessionsFile, { force: true })
+    }
+  })
+})
+
+describe("CLI 定价时效与历史口径", () => {
+  function fixture(config: Record<string, unknown> = {}) {
+    const configDir = join(tmpHome, ".config", "opencode")
+    const logsDir = join(configDir, "logs", "token-tracker")
+    mkdirSync(logsDir, { recursive: true })
+    const configFile = join(configDir, "token-tracker.json")
+    const logsFile = join(logsDir, "tokens.jsonl")
+    const pairs = [
+      ["deepseek", "deepseek-flash"],
+      ["deepseek", "deepseek-chat"],
+      ["moonshotai", "kimi-k2.7-code"],
+      ["moonshotai", "kimi-k2.7-code-highspeed"],
+    ]
+    const entries = pairs.map(([provider, model], i) => ({
+      type: "tokens", _ts: Date.now(), input: 1_000_000, output: 0,
+      provider, model, messageId: `pricing-${i}`, cost: 9.87,
+    }))
+    writeFileSync(configFile, JSON.stringify(config))
+    writeFileSync(logsFile, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n")
+    return { configFile, logsFile, entries, cleanup: () => {
+      rmSync(configFile, { force: true })
+      rmSync(logsFile, { force: true })
+    } }
+  }
+
+  it("models 和 doctor 区分内置来源、型号核验与未核价变体", () => {
+    const data = fixture()
+    try {
+      const models = run(["models"])
+      assert.equal(models.status, 0)
+      assert.match(models.stdout, /deepseek-flash\s+deepseek\s+1\s+built-in\s+.*reviewed 2026-10-05; peak estimate/)
+      assert.match(models.stdout, /kimi-k2\.7-code\s+moonshotai\s+1\s+built-in\s+.*reviewed 2026-10-05/)
+      assert.match(models.stdout, /kimi-k2\.7-code-highspeed\s+moonshotai\s+1\s+default\s+-/)
+      assert.match(models.stdout, /deepseek-chat\s+deepseek\s+1\s+built-in\s+.*valid until 2026-07-24T16:00:00Z/)
+      const doctor = run(["doctor"])
+      assert.equal(doctor.status, 0)
+      assert.ok(doctor.stdout.includes("Default-priced model/provider pairs: 1"))
+      assert.ok(doctor.stdout.includes("Built-in audit warnings:"))
+      assert.ok(doctor.stdout.includes("deepseek-chat (deepseek): expired"))
+      assert.ok(doctor.stdout.includes("Review stale/expired built-in prices"))
+    } finally {
+      data.cleanup()
+    }
+  })
+
+  it("用户覆盖价格后 doctor 不再对未使用的内置价格告警", () => {
+    const data = fixture({ providers: {
+      deepseek: { input: 0, output: 0 },
+      moonshotai: { input: 0, output: 0 },
+    } })
+    try {
+      const doctor = run(["doctor"])
+      assert.equal(doctor.status, 0)
+      assert.ok(doctor.stdout.includes("Built-in audit warnings: 0"))
+      assert.ok(doctor.stdout.includes("Default-priced model/provider pairs: 0"))
+      const models = run(["models"])
+      assert.match(models.stdout, /deepseek-chat\s+deepseek\s+1\s+provider cfg\s+-/)
+    } finally {
+      data.cleanup()
+    }
+  })
+
+  it("更新价格和诊断不会重算或修改历史 cost 与配置", () => {
+    const data = fixture()
+    try {
+      const beforeLog = readFileSync(data.logsFile, "utf8")
+      const beforeConfig = readFileSync(data.configFile, "utf8")
+      for (const command of ["pricing", "models", "doctor"]) assert.equal(run([command]).status, 0)
+      const exported = run(["export", "--format", "json"])
+      assert.equal(exported.status, 0)
+      assert.deepEqual(JSON.parse(exported.stdout), data.entries)
+      assert.equal(readFileSync(data.logsFile, "utf8"), beforeLog)
+      assert.equal(readFileSync(data.configFile, "utf8"), beforeConfig)
+    } finally {
+      data.cleanup()
     }
   })
 })

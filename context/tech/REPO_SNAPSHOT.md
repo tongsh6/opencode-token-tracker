@@ -33,6 +33,7 @@ test/session-display.test.ts
 test/plugin-budget.test.ts
 test/plugin-session.test.ts
 test/toast.test.ts
+test/pricing-audit.test.ts
 .github/workflows/ci.yml
 .github/workflows/release.yml
 token-tracker.example.json
@@ -46,6 +47,8 @@ context/
 
 - `lib/shared.ts`
   - 共享模块：`ModelPricing` 接口、`BUILTIN_PRICING` 定价表
+  - 定价核验：`BUILTIN_PRICING_AUDITS` 按型号覆盖全表基线日期；`getPricingFreshness()` 区分 recent/stale/expired/unknown，90 天为复核提示阈值
+  - 内置匹配由计价、来源标签、核验信息共用；本次新核价 DeepSeek/Kimi 条目只接受精确名或 `/` 前缀名，其他既有型号继续按最长 key 部分匹配
   - 配置类型：`TrackerConfig`、`ToastConfig`、`BudgetConfig`、`ConfigValidationResult`
   - 配置验证：`validateConfig(raw)` — 将任意输入规范化为有效配置，收集 warnings
   - 默认配置：`DEFAULT_CONFIG` 常量
@@ -71,6 +74,7 @@ context/
   - daily 分组使用本地自然日；日志加载使用 `hasBillableTokenUsage()` 纳入 cache-only 记录
   - session 分组从 `sessions.jsonl` 读取标题与父子关系，按根会话汇总
   - raw-session 分组保留主、子会话的独立行，用于查看各自消耗
+  - pricing/models 展示型号核验日期与估算口径，doctor 对已使用的陈旧/到期内置价格提示；用户覆盖不继承内置日期
 
 - `scripts/release.js`
   - 分段式 release controller：`check`、`prepare`、`tag`

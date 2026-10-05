@@ -26,3 +26,4 @@
 | 2026-05-30 | [lessons/2026-05-30-release-changelog-gitlog-scope.md](lessons/2026-05-30-release-changelog-gitlog-scope.md) | Release changelog 必须从上一版 tag 到待发布 HEAD 的完整 git log 生成 |
 | 2026-10-05 | [lessons/2026-10-05-budget-period-rollover.md](lessons/2026-10-05-budget-period-rollover.md) | 周期重载须排除当前待累计消息，日志和预算须共用时间戳 |
 | 2026-10-05 | [lessons/2026-10-05-session-rollup-events.md](lessons/2026-10-05-session-rollup-events.md) | 会话归并须验证事件顺序、重启恢复和父会话自身无消耗的边界 |
+| 2026-10-05 | [lessons/2026-10-05-pricing-audit-scope.md](lessons/2026-10-05-pricing-audit-scope.md) | 内置来源不等于价格有效，局部核价必须保留逐型号日期与匹配边界 |

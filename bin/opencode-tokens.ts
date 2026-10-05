@@ -4,14 +4,18 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { SessionMeta, SessionMetaRecord, TrackerConfig } from "../lib/shared.js"
+import type { BuiltinPricingAudit, PricingFreshness, SessionMeta, SessionMetaRecord, TrackerConfig } from "../lib/shared.js"
 import {
   BUILTIN_PRICING,
   BUILTIN_PRICING_META,
   DEFAULT_CONFIG,
+  PRICING_STALE_AFTER_DAYS,
   formatCost,
   formatLocalDateKey,
   formatTokens,
+  getBuiltinPricingAudit,
+  getEffectivePricingAudit,
+  getPricingFreshness,
   getStartOfDay,
   getStartOfMonth,
   getStartOfWeek,
@@ -628,6 +632,39 @@ function cmdStats(period: StatsPeriod, breakdown?: StatsBreakdown) {
   }
 }
 
+function formatPricingAudit(audit: BuiltinPricingAudit | undefined): string {
+  if (!audit) return "-"
+  const expiry = audit.expiresAt ? `; valid until ${audit.expiresAt}` : ""
+  const basis = audit.basis === "peak" ? "; peak estimate" : ""
+  return `${getPricingFreshness(audit)}; reviewed ${audit.reviewedAt}${basis}${expiry}`
+}
+
+function printPricingAuditNotes(): void {
+  console.log(`  Audit status: recent = reviewed within ${PRICING_STALE_AFTER_DAYS} days; stale = older; expired = past known validity; unknown = check date/clock.`)
+  console.log(`  A recent audit does not guarantee that provider prices are unchanged.`)
+  console.log(`  DeepSeek Flash/Pro: peak-rate estimate; off-peak rates are 50% lower. No automatic time/holiday selection.`)
+  console.log(`  Retired DeepSeek aliases keep legacy estimates and are marked expired.`)
+  console.log(`  Current pricing/configuration affects new records only; stored historical costs are not recalculated.`)
+  console.log()
+}
+
+function getPricingAuditWarnings(entries: TokenEntry[], config: TrackerConfig) {
+  const warnings = new Map<string, { model: string; provider: string; audit: BuiltinPricingAudit; freshness: PricingFreshness }>()
+  const seen = new Set<string>()
+  for (const entry of entries) {
+    const model = entry.model ?? "unknown"
+    const provider = entry.provider ?? "unknown"
+    const key = `${model}|${provider}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const audit = getEffectivePricingAudit(config, model, provider)
+    if (!audit) continue
+    const freshness = getPricingFreshness(audit)
+    if (freshness !== "recent") warnings.set(key, { model, provider, audit, freshness })
+  }
+  return Array.from(warnings.values()).sort((a, b) => Number(b.freshness === "expired") - Number(a.freshness === "expired"))
+}
+
 function cmdPricing() {
   const config = loadConfig()
   
@@ -636,31 +673,34 @@ function cmdPricing() {
   ══════════════════════════════════════════════════════════════════
   Pricing last updated:  ${BUILTIN_PRICING_META.pricingLastUpdated}
   Metadata last updated: ${BUILTIN_PRICING_META.metadataLastUpdated}
+  Baseline audit:        ${BUILTIN_PRICING_META.baselineLastUpdated} (unless a model has its own date)
   Source:                ${BUILTIN_PRICING_META.source}
+  Scope:                 ${BUILTIN_PRICING_META.notes}
 `)
   
   // Group by provider
   const groups: Record<string, string[]> = {
     "Anthropic Claude": ["claude-opus-4.8", "claude-opus-4.7", "claude-opus-4.6", "claude-opus-4.5", "claude-sonnet-4.6", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5", "claude-haiku-4", "claude-opus-4.1", "claude-opus-4", "claude-haiku-3"],
     "OpenAI": ["gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.4-pro", "gpt-5.3-codex", "gpt-5.3-chat-latest", "gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano", "gpt-5.1", "gpt-5.1-chat-latest", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5", "gpt-5-chat-latest", "gpt-5-codex", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o3", "o3-mini", "o4-mini", "o1", "o1-mini"],
-    "DeepSeek": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"],
+    "DeepSeek": ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
+    "Moonshot Kimi": ["kimi-k2.7-code"],
     "Google Gemini": ["gemini-3.1-pro-preview", "gemini-3-pro", "gemini-3-pro-preview", "gemini-3.5-flash", "gemini-3-flash", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
   }
   
-  const modelWidth = 24
+  const modelWidth = Math.max(24, ...Object.values(groups).flat().map(model => model.length + (config.models[model] ? 2 : 0)))
   const priceWidth = 10
   
   for (const [group, models] of Object.entries(groups)) {
     console.log(`  ${group}`)
     console.log(`  ${"-".repeat(modelWidth + priceWidth * 4 + 12)}`)
-    console.log(`  ${padRight("Model", modelWidth)}  ${padLeft("Input", priceWidth)}  ${padLeft("Output", priceWidth)}  ${padLeft("CacheRd", priceWidth)}  ${padLeft("CacheWr", priceWidth)}`)
+    console.log(`  ${padRight("Model", modelWidth)}  ${padLeft("Input", priceWidth)}  ${padLeft("Output", priceWidth)}  ${padLeft("CacheRd", priceWidth)}  ${padLeft("CacheWr", priceWidth)}  Audit`)
     
     for (const model of models) {
       const p = BUILTIN_PRICING[model]
       if (!p) continue
       const overridden = config.models[model] ? " *" : ""
       console.log(
-        `  ${padRight(`${model}${overridden}`, modelWidth)}  ${padLeft(`$${p.input.toString()}`, priceWidth)}  ${padLeft(`$${p.output.toString()}`, priceWidth)}  ${padLeft(p.cacheRead ? `$${p.cacheRead.toString()}` : "-", priceWidth)}  ${padLeft(p.cacheWrite ? `$${p.cacheWrite.toString()}` : "-", priceWidth)}`
+        `  ${padRight(`${model}${overridden}`, modelWidth)}  ${padLeft(`$${p.input.toString()}`, priceWidth)}  ${padLeft(`$${p.output.toString()}`, priceWidth)}  ${padLeft(p.cacheRead !== undefined ? `$${p.cacheRead.toString()}` : "-", priceWidth)}  ${padLeft(p.cacheWrite !== undefined ? `$${p.cacheWrite.toString()}` : "-", priceWidth)}  ${formatPricingAudit(getBuiltinPricingAudit(model))}`
       )
     }
     console.log()
@@ -680,8 +720,8 @@ function cmdPricing() {
   console.log(`    When a model is not matched in the built-in pricing table or user configuration,`)
   console.log(`    it falls back to the default rate ($1.0 / $4.0 per 1M tokens).`)
   console.log(`    You can easily override it in your configuration.`)
-  console.log(`    ${BUILTIN_PRICING_META.notes}`)
   console.log()
+  printPricingAuditNotes()
 }
 
 function cmdModels() {
@@ -726,7 +766,7 @@ function cmdModels() {
   const countWidth = 8
   const statusWidth = 12
   
-  console.log(`  ${padRight("Model", modelWidth)}  ${padRight("Provider", providerWidth)}  ${padLeft("Msgs", countWidth)}  ${padRight("Pricing", statusWidth)}`)
+  console.log(`  ${padRight("Model", modelWidth)}  ${padRight("Provider", providerWidth)}  ${padLeft("Msgs", countWidth)}  ${padRight("Pricing", statusWidth)}  Audit`)
   console.log(`  ${"-".repeat(modelWidth)}  ${"-".repeat(providerWidth)}  ${"-".repeat(countWidth)}  ${"-".repeat(statusWidth)}`)
   
   const defaultModels: Array<{ model: string; provider: string; count: number }> = []
@@ -742,7 +782,7 @@ function cmdModels() {
         defaultModels.push({ model, provider, count })
       }
     }
-    console.log(`  ${padRight(model, modelWidth)}  ${padRight(provider, providerWidth)}  ${padLeft(count.toString(), countWidth)}  ${padRight(status, statusWidth)}`)
+    console.log(`  ${padRight(model, modelWidth)}  ${padRight(provider, providerWidth)}  ${padLeft(count.toString(), countWidth)}  ${padRight(status, statusWidth)}  ${formatPricingAudit(getEffectivePricingAudit(config, model, provider))}`)
   }
   
   console.log()
@@ -752,6 +792,11 @@ function cmdModels() {
   console.log(`    model cfg    = overridden by models config`)
   console.log(`    default      = unknown model, using $1/$4 per 1M tokens`)
   console.log()
+  printPricingAuditNotes()
+  if (getPricingAuditWarnings(entries, config).length > 0) {
+    console.log(`  Review stale/expired built-in prices with: opencode-tokens pricing`)
+    console.log()
+  }
 
   if (zeroCostProviderModels.length > 0 || defaultModels.length > 0) {
     console.log(`  Next steps for default pricing:`)
@@ -837,6 +882,7 @@ function cmdDoctor() {
   console.log()
 
   const defaultModels = getDefaultModelProviders(entries, configDiagnostics.config)
+  const auditWarnings = getPricingAuditWarnings(entries, configDiagnostics.config)
   const zeroCostProviders = dedupeZeroCostProviderMatches(
     defaultModels.flatMap(({ model, provider, count }) => {
       const match = getZeroCostProviderMatch(provider)
@@ -845,6 +891,13 @@ function cmdDoctor() {
   )
   console.log(`  Pricing`)
   console.log(`    Built-in pricing updated: ${BUILTIN_PRICING_META.pricingLastUpdated}`)
+  console.log(`    ${BUILTIN_PRICING_META.notes}`)
+  console.log(`    Built-in audit warnings: ${auditWarnings.length}`)
+  for (const { model, provider, audit } of auditWarnings.slice(0, 5)) {
+    console.log(`    - ${model} (${provider}): ${formatPricingAudit(audit)}`)
+  }
+  if (auditWarnings.length > 5) console.log(`    - ...and ${auditWarnings.length - 5} more; see opencode-tokens models`)
+  console.log(`    DeepSeek Flash/Pro use peak-rate estimates; off-peak rates are 50% lower.`)
   console.log(`    Default-priced model/provider pairs: ${defaultModels.length}`)
   for (const { model, provider, count } of defaultModels.slice(0, 5)) {
     console.log(`    - ${model} (${provider}, ${count} msgs)`)
@@ -873,6 +926,9 @@ function cmdDoctor() {
   if (defaultModels.length > 0) {
     nextSteps.push(`Review default pricing with: opencode-tokens models`)
     nextSteps.push(`Generate suggested overrides with: opencode-tokens config init`)
+  }
+  if (auditWarnings.length > 0) {
+    nextSteps.push(`Review stale/expired built-in prices with: opencode-tokens pricing`)
   }
   if (!hasBudget) {
     nextSteps.push(`Configure optional budgets with: opencode-tokens config init`)
