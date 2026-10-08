@@ -1,6 +1,6 @@
 # REPO SNAPSHOT
 
-更新时间：2026-10-05
+更新时间：2026-10-08
 
 ## 项目定位
 
@@ -15,7 +15,7 @@
 - 模块系统：ESM（`"type": "module"`）
 - 编译目标：ES2022
 - 模块解析：`bundler`
-- 运行时依赖：`@opencode-ai/plugin`
+- 运行时依赖：`@opencode/plugin@2.0.25`
 - 测试：Node.js 内置 `node:test` + `node:assert`（零额外依赖）
 - 构建：`tsc`
 
@@ -23,15 +23,22 @@
 
 ```
 index.ts
+tui.ts
+lib/tracker.ts
+lib/rpc.ts
 lib/shared.ts
 bin/opencode-tokens.ts
 scripts/real-opencode-cli-smoke.mjs
 scripts/release.js
+scripts/package-smoke.mjs
 test/shared.test.ts
 test/cli.test.ts
 test/session-display.test.ts
 test/plugin-budget.test.ts
 test/plugin-session.test.ts
+test/plugin-v2.test.ts
+test/plugin-tui.test.ts
+test/plugin-harness.ts
 test/toast.test.ts
 test/pricing-audit.test.ts
 .github/workflows/ci.yml
@@ -58,14 +65,21 @@ context/
   - 由 `index.ts` 和 `bin/opencode-tokens.ts` 共同导入
 
 - `index.ts`
-  - 插件入口（`TokenTrackerPlugin`）
-  - 监听 `message.updated`、`session.idle`，并通过 `session.created` / `session.updated` 记录会话元数据
-  - 记录 JSONL 日志并管理会话内存统计
-  - 内存 `BudgetTracker` 累加器：初始化和周期切换时读取相关时间窗口，其余消息只做内存累计
-  - 周期重载在当前记录写入前完成，成功写入后再累计；周期判断与日志 `_ts` 共用时间戳，避免重复计数或午夜边界偏移
-  - 触发 Toast 成本提示
-  - 启动时流式读取 `sessions.jsonl` 恢复父子关系；实时事件持续补充，标题更新不会清空关系
-  - Toast / idle 摘要按根会话汇总当前进程收到的消耗，历史 token 不在启动时回放
+  - V2 `Plugin.define` 服务端入口，目标 OpenCode >= 2.0.25 且 < 3
+  - 按 location 隔离 `ctx.event.subscribe()`，cleanup abort 订阅并 dispose RPC
+  - 关联 step.started 与 ended/failed，记录 compaction 用量，执行终态触发摘要
+  - 通过 created/renamed 和 session.get 恢复会话元数据；消息模型缺失时查询 session.context
+  - V2 可见输出 + reasoning 转为历史日志 output，累计 usage 事件不重复处理
+
+- `lib/tracker.ts`
+  - 每实例配置、JSONL、预算和会话统计；保留原配置与日志路径
+  - 日志写入成功后才确认去重与累计统计；日/周/月重载在当前记录写入前完成
+  - 其他实例追加日志后，按大小变化重新读取预算窗口
+  - 启动流式恢复 sessions.jsonl，Toast 不回放历史 token
+
+- `lib/rpc.ts` / `tui.ts`
+  - TrackerRpc 传递提示及启动配置警告；TUI 只展示，不写日志
+  - 包导出 `./tui`，按 location 过滤提示，卸载时注销订阅
 
 - `bin/opencode-tokens.ts`
   - CLI 入口：统计、预算、定价相关命令
@@ -92,9 +106,9 @@ context/
 
 - 分支策略：`feature/*` 或 `fix/*` -> PR 到 `dev` -> PR 到 `main`
 - 提交规范：Conventional Commits
-- CI：GitHub Actions（Node 18 + 22 矩阵，push/PR 到 main/dev 触发）
+- CI：GitHub Actions（Node 18 + 22 + 24 矩阵，push/PR 到 main/dev 触发）
 - 发布：`npm run release:check` -> `npm run release:prepare` -> PR 合并到 `main` -> `npm run release:tag`；tag 触发 GitHub Actions 执行 `npm publish`
-- 当前版本：`1.8.0`
+- 当前版本：`2.0.0`
 
 ## 常用命令
 
@@ -102,6 +116,7 @@ context/
 npm install
 npm run build
 npm test
+npm run test:package
 npm run release:check
 npm run release:prepare
 npm run release:tag
@@ -119,10 +134,12 @@ node dist/bin/opencode-tokens.js doctor
 - `BUILTIN_PRICING` 已统一到 `lib/shared.ts`，修改定价只需改一处
 - 配置验证统一在 `lib/shared.ts` 的 `validateConfig()`，无效字段静默修正为默认值
 - 插件通过 Toast 展示配置警告；CLI 输出到 stderr
-- `seen` 去重集合存在上限（10,000）以控制内存
+- 去重集合和 step 模型缓存上限为 10,000；终态按 sessionId/messageId 去重
 - 插件 budget 检查已优化为内存累加器，不再每条消息读文件
 - CLI `budget` 命令使用 `loadEntries(since)` 仅加载相关周期数据
 - CLI 与插件的 token 记录准入必须继续复用 `hasBillableTokenUsage()`，避免 cache-only 记录在某一侧被漏统
 - 日期维度统计必须使用本地自然日口径；避免在 CLI breakdown 中重新引入 UTC `toISOString().slice(0, 10)` 分组
 - 预算回归测试通过插件事件入口验证日/周/月切换、未切换周期累计、日志失败及午夜写入边界；测试使用临时目录与隔离的时钟，不改动本机 OpenCode 数据
 - 会话回归测试通过插件事件入口验证多层归并、任务隔离、晚到关系、标题更新、无父会话自身消耗、重启恢复与元数据读取降级
+
+V2 完整契约和验证边界见 [opencode-v2-migration.md](opencode-v2-migration.md)。

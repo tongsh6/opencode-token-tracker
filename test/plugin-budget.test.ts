@@ -1,4 +1,4 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import { createHarness } from "./plugin-harness.js"
 import type { TestContext } from "node:test"
 import { strict as assert } from "node:assert"
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -10,13 +10,7 @@ import { describe, it } from "node:test"
 const require = createRequire(import.meta.url)
 const os = require("node:os") as typeof import("node:os")
 const fs = require("node:fs") as typeof import("node:fs")
-const pluginUrl = new URL("../index.js", import.meta.url)
-let fixtureId = 0
 
-interface Toast {
-  message: string
-  variant: string
-}
 
 interface BudgetScenario {
   name: string
@@ -39,7 +33,6 @@ async function createFixture(t: TestContext, period: BudgetScenario["period"], b
 
   const RealDate = Date
   const clock = { now: new RealDate(before).getTime() }
-  const toasts: Toast[] = []
   const records = () => readFileSync(logFile, "utf8").trim().split("\n")
     .map((line) => JSON.parse(line) as { cost: number; _ts: number })
   const appendHistory = (cost: number) => appendFileSync(logFile, `${JSON.stringify({
@@ -65,30 +58,8 @@ async function createFixture(t: TestContext, period: BudgetScenario["period"], b
     rmSync(fixture, { recursive: true, force: true })
   })
 
-  const { TokenTrackerPlugin } = await import(`${pluginUrl.href}?fixture=${fixtureId++}`) as typeof import("../index.js")
-  // 只替换插件使用的宿主接口；文件读写、计价与事件处理均执行真实代码。
-  const input = {
-    directory: fixture,
-    client: { tui: { showToast: async ({ body }: { body: Toast }) => { toasts.push(body) } } },
-  } as unknown as Parameters<Plugin>[0]
-  const plugin = await TokenTrackerPlugin(input)
-  const event = plugin.event
-  assert.ok(event)
-
-  const send = (id: string) => event({
-    event: {
-      type: "message.updated",
-      properties: {
-        info: {
-          id, sessionID: "test-session", parentID: "test-parent", role: "assistant",
-          modelID: "test-model", providerID: "test-provider", mode: "build",
-          path: { cwd: fixture, root: fixture }, cost: 0,
-          tokens: { input: 1_000_000, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          time: { created: clock.now, completed: clock.now },
-        },
-      },
-    },
-  })
+  const { toasts, message } = await createHarness(t, fixture)
+  const send = (id: string) => message("test-session", 1_000_000, id)
 
   return { clock, toasts, records, appendHistory, send }
 }

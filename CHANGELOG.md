@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-08
+
+### Changed
+
+- **Breaking:** 插件运行时迁移到 OpenCode >= 2.0.25 且 < 3；V1 用户保留 1.8.0。依赖替换为固定版本 `@opencode/plugin@2.0.25`，安装配置使用 `plugins`。
+- 服务端改用 `Plugin.define` / `setup` 和 `ctx.event.subscribe()`；按 location 隔离，卸载时清理订阅和 RPC。
+- 新增 `./tui` 导出，以 RPC 传递 Toast 和启动配置警告。无界面请求仅由服务端记账，多终端展示不重复写日志。
+- 采集 assistant step 完成/失败及 compaction 用量；V2 可见输出与 reasoning 合并为原有日志 output 口径。累计 usage 事件不重复计费，标题生成不在公开逐次事件覆盖范围内。
+- 会话元数据改用 created/renamed 事件及会话查询恢复，保留主子会话汇总。已有配置、JSONL 和独立统计 CLI 兼容。
+- dogfood 适配 V2 的 standalone run，校验精确消息匹配、重复记录与 token 映射；不再替换全局缓存链接或要求无界面 run 产生 TUI 事件。
+
+### Fixed
+
+- 日志写入成功后才更新去重、会话统计和预算，失败后可重试同一消息。
+- 多个项目实例检测其他实例追加的日志并刷新预算，避免漏计跨项目用量。
+
+### Tests
+
+- 将已有预算和会话回归迁移到 V2 事件入口，新增 V2 事件、TUI/RPC、清理和官方 Host 加载验证；CI 覆盖 Node 18、22、24。
+
 ## [1.8.0] - 2026-10-05
 
 ### Added

@@ -1,4 +1,4 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import { createHarness } from "./plugin-harness.js"
 import type { TestContext } from "node:test"
 import { strict as assert } from "node:assert"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -8,14 +8,7 @@ import { join } from "node:path"
 import { describe, it } from "node:test"
 
 const os = createRequire(import.meta.url)("node:os") as typeof import("node:os")
-const pluginUrl = new URL("../index.js", import.meta.url)
-let fixtureId = 0
 
-interface Toast {
-  title: string
-  message: string
-  variant: string
-}
 
 async function createFixture(t: TestContext, options: { history?: string; unreadableHistory?: boolean } = {}) {
   const fixture = mkdtempSync(join(tmpdir(), "token-tracker-session-"))
@@ -36,38 +29,14 @@ async function createFixture(t: TestContext, options: { history?: string; unread
     rmSync(fixture, { recursive: true, force: true })
   })
 
-  const toasts: Toast[] = []
-  const { TokenTrackerPlugin } = await import(`${pluginUrl.href}?session-fixture=${fixtureId++}`) as typeof import("../index.js")
-  const plugin = await TokenTrackerPlugin({
-    directory: fixture,
-    client: { tui: { showToast: async ({ body }: { body: Toast }) => { toasts.push(body) } } },
-  } as unknown as Parameters<Plugin>[0])
-  const event = plugin.event
-  assert.ok(event)
-
-  const message = (sessionID: string, input: number, id = `${sessionID}-${input}`) => event({
-    event: {
-      type: "message.updated",
-      properties: { info: {
-        id, sessionID, parentID: "user-message", role: "assistant",
-        modelID: "test-model", providerID: "test-provider", mode: "build",
-        path: { cwd: fixture, root: fixture }, cost: 0,
-        tokens: { input, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        time: { created: Date.now(), completed: Date.now() },
-      } },
-    },
-  })
-  const session = (id: string, parentID?: string, type: "session.created" | "session.updated" = "session.created") => event({
-    event: {
-      type,
-      properties: { info: {
-        id, parentID, title: `${id} title`, directory: fixture,
-        projectID: "test-project", version: "test",
-        time: { created: Date.now(), updated: Date.now() },
-      } },
-    },
-  })
-  const idle = (sessionID: string) => event({ event: { type: "session.idle", properties: { sessionID } } })
+  const { toasts, send, message: sendMessage } = await createHarness(t, fixture)
+  const message = (sessionID: string, input: number, id = `${sessionID}-${input}`) => sendMessage(sessionID, input, id)
+  const session = (id: string, parentID?: string, type: "session.created" | "session.renamed" = "session.created") => {
+    if (type === "session.renamed") return send("session.renamed", { sessionID: id, title: `${id} title` })
+    return send("session.created", { sessionID: id, parentID, title: `${id} title`,
+      location: { directory: fixture }, projectID: "test-project", version: "2.0.25", slug: id })
+  }
+  const idle = (sessionID: string) => send("session.execution.succeeded", { sessionID })
   const records = () => readFileSync(join(logDir, "tokens.jsonl"), "utf8").trim().split("\n")
     .map((line) => JSON.parse(line) as { sessionId: string; cost: number })
   return { toasts, message, session, idle, records }
@@ -90,7 +59,7 @@ describe("插件主子会话事件回归", { concurrency: false }, () => {
     assert.equal(rootToast?.title, "Session: 875.0K tokens")
     assert.match(rootToast?.message ?? "", /^\$0\.875 \| 3 msgs \|/)
     await fixture.idle("leaf")
-    assert.deepEqual(fixture.toasts.at(-1), rootToast)
+    assert.equal(fixture.toasts.at(-1)?.message, rootToast?.message)
     assert.deepEqual(fixture.records().map((record) => record.sessionId), ["other", "root", "child", "leaf"])
   })
 
@@ -99,7 +68,7 @@ describe("插件主子会话事件回归", { concurrency: false }, () => {
     await fixture.message("root", 500_000)
     await fixture.message("child", 250_000)
     assert.equal(fixture.toasts.at(-1)?.message, "$0.250 | Session: 250.0K · $0.250")
-    await fixture.session("child", "root", "session.updated")
+    await fixture.session("child", "root")
     await fixture.idle("child")
     assert.equal(fixture.toasts.at(-1)?.title, "Session: 750.0K tokens")
     assert.match(fixture.toasts.at(-1)?.message ?? "", /^\$0\.750 \| 2 msgs \|/)
@@ -110,7 +79,7 @@ describe("插件主子会话事件回归", { concurrency: false }, () => {
     await fixture.session("child", "root")
     await fixture.message("root", 500_000)
     await fixture.message("child", 250_000)
-    await fixture.session("child", undefined, "session.updated")
+    await fixture.session("child", undefined, "session.renamed")
     await fixture.message("child", 125_000)
     assert.equal(fixture.toasts.at(-1)?.message, "$0.125 | Session: 875.0K · $0.875")
   })

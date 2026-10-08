@@ -2,6 +2,8 @@
 
 本文档是一条端到端使用路径，帮助用户确认插件已经安装、正在记录真实 OpenCode CLI 用量，并能通过 CLI 查看统计与预算。
 
+本指南面向插件 2.0.0 / OpenCode >= 2.0.25 且 < 3。V1 用户继续使用插件 1.8.0；已有日志和 tracker 配置无需迁移。
+
 ## 1. 安装插件
 
 ### 1.1 OpenCode 插件
@@ -11,7 +13,7 @@
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-token-tracker"]
+  "plugins": ["opencode-token-tracker@2.0.0"]
 }
 ```
 
@@ -124,10 +126,10 @@ opencode-tokens budget
 
 ```bash
 npm run build
-node scripts/real-opencode-cli-smoke.mjs --use-temporary-link --model deepseek/deepseek-chat --prompt "Reply with OK only."
+node scripts/real-opencode-cli-smoke.mjs --model YOUR_PROVIDER/YOUR_MODEL --prompt "Reply with OK only."
 ```
 
-脚本会临时把 OpenCode 解析到的 package 路径指向当前仓库，覆盖 `~/.config/opencode/node_modules` 与 `~/.cache/opencode/packages` 中发现的插件路径，运行结束后恢复。
+先在测试项目中将 V2 `plugins` 指向本地插件入口；具体配置见 [dogfood 说明](context/tech/real-opencode-cli-dogfood.md)。脚本不会安装 OpenCode、修改全局配置或替换缓存链接。
 
 dogfood 会验证：
 
@@ -135,7 +137,8 @@ dogfood 会验证：
 - stdout 中存在 `step_finish`
 - 没有 `failed to load plugin opencode-token-tracker`
 - token log 中新增匹配记录
-- debug 日志中出现 Toast 事件
+- V2 的 input、可见 output、reasoning 和 cache 字段与日志一致，且每条消息只记一次
+- `run` 不启动 TUI；Toast 在交互终端单独验收
 - 成本 drift 被写入 summary 供人工审阅
 
 产物写入：
