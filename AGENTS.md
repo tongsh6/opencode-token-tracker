@@ -6,7 +6,7 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 
 - 项目：OpenCode Token Tracker（OpenCode 插件）
 - 目标：实时追踪 token 用量与成本，提供 Toast 提示与 CLI 统计
-- 主文件：`index.ts`（插件）、`bin/opencode-tokens.ts`（CLI）、`lib/shared.ts`（共享模块）
+- 主文件：`index.ts`（插件）、`bin/opencode-tokens.ts`（CLI）、`lib/shared.ts`（共享模块）、`lib/tracker.ts`（记账核心）、`tui.ts`（V2 TUI）
 - 技术栈：TypeScript strict + ESM（Node >= 18）
 - 发布：npm 包 `opencode-token-tracker`
 
@@ -33,23 +33,27 @@ OpenCode Token Tracker 仓库的 AI 协作入口（AIEF L0+）。
 - 提交信息遵循 Conventional Commits（`feat|fix|docs|chore|refactor|test`）
 - 测试框架：Node.js 内置 `node:test`，验证方式为 `npm test`（含构建 + 测试）
 - `dist/` 为构建产物目录，不手动编辑
-- 除 `@opencode-ai/plugin` 外不引入额外运行时依赖
+- 除 V2 官方 SDK `@opencode/plugin` 外不引入额外运行时依赖
 - 代码风格细则统一放在 [context/tech/conventions/typescript.md](context/tech/conventions/typescript.md)
 
 ## 5) 架构与实现要点
 
 ### 数据流
 
-1. 监听 OpenCode 事件：`message.updated`、`session.idle`
-2. 使用 `messageId-input-output-cacheRead-cacheWrite` 去重 token 记录
+1. 面向 OpenCode >= 2.0.25 且 < 3；订阅 `session.step.started/ended/failed`、`session.compaction.ended/failed`、`session.execution.*`，按 location 隔离
+2. 以 sessionId + messageId（compaction 使用 event.id）去重，成功写入后才确认；V2 output + reasoning 合并为日志 output
 3. 定价查找顺序：provider 覆盖 -> 用户 model 精确匹配 -> 内置精确匹配 -> 内置部分匹配 -> 用户 model 部分匹配 -> 默认值
 4. 持久化到 `~/.config/opencode/logs/token-tracker/tokens.jsonl`（JSONL）
 5. 会话统计保存在内存 `Map<string, SessionStats>`
-6. 通过 `client.tui.showToast()` 输出提示
+6. 服务端通过 `TrackerRpc` 发出提示，TUI 使用 `context.ui.toast.show()` 展示；TUI 不参与记账
 
-会话父子关系通过 `session.created` / `session.updated` 写入 `sessions.jsonl`，启动时恢复。Toast 按根会话归并当前进程收到的消耗；CLI `--by session` 汇总历史日志，`--by raw-session` 保留各会话明细。
+会话父子关系通过 `session.created` / `session.renamed` 和 `ctx.session.get()` 写入 `sessions.jsonl`，启动时恢复。Toast 按根会话归并当前进程收到的消耗；CLI `--by session` 汇总历史日志，`--by raw-session` 保留各会话明细。
 
 ### 关键注意事项
+
+- V2 迁移说明：[context/tech/opencode-v2-migration.md](context/tech/opencode-v2-migration.md)；订阅须在 cleanup 中 abort，RPC 需 dispose
+- `session.usage.updated` 是累计值，不可逐条追加计费；标题生成逐次用量尚未公开
+- 多项目记账器通过日志大小变化感知其他实例写入，重载预算后再追加当前消耗
 
 - `BUILTIN_PRICING` 已统一到 `lib/shared.ts`，修改定价只需改一处
 - 定价变更需同步维护逐型号 `BUILTIN_PRICING_AUDITS`；局部核价不刷新其他型号日期。DeepSeek Flash/Pro 使用明确标注的峰时估算
@@ -76,7 +80,7 @@ npm run build
 npm test
 
 # 真实本机 OpenCode CLI dogfood
-npm run build && node scripts/real-opencode-cli-smoke.mjs --use-temporary-link --model deepseek/deepseek-chat
+npm run build && node scripts/real-opencode-cli-smoke.mjs --model YOUR_PROVIDER/YOUR_MODEL
 
 # CLI 手动验证
 node dist/bin/opencode-tokens.js

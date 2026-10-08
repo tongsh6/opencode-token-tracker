@@ -1,77 +1,49 @@
-# 真实 OpenCode CLI Dogfood 机制
+# OpenCode V2 真实 CLI 验收
 
-本机制用于插件作者在本机真实 `opencode` CLI 环境中验证 `opencode-token-tracker`，不是 mock、不是 `opencode server`。
+适用于插件 2.0.0 和 OpenCode >= 2.0.25 且 < 3。脚本调用已安装的 V2，不安装或升级全局工具，不改写配置，不替换缓存链接。请求会产生模型费用并追加 tracker 日志。
+
+## 准备
+
+先构建：
+
+```bash
+npm run build
+```
+
+在专用测试项目的 `opencode.json` 中配置当前仓库入口（避免同时加载发布包和本地插件）：
+
+```json
+{
+  "plugins": ["/absolute/path/opencode-token-tracker/index.ts"]
+}
+```
+
+该配置用于服务端 CLI 记账验收。交互 TUI 验收应使用安装包的 `.` / `./tui` 导出；本地源文件测试时在 `cli.json` 的 `plugins` 中添加绝对路径 `tui.ts`。修改全局配置须遵守本机授权、备份和恢复策略。
+
+正式发布前还应把 `npm pack` 产物装入测试项目，并验证实际安装包的两个入口，而不只测试链接到工作区的源码。
 
 ## 命令
 
-```bash
-npm run build && node scripts/real-opencode-cli-smoke.mjs
-```
-
-常用稳定写法：
+在已配置的测试项目目录执行：
 
 ```bash
-npm run build && node scripts/real-opencode-cli-smoke.mjs --model deepseek/deepseek-chat --prompt "Reply with OK only."
+node /absolute/path/opencode-token-tracker/scripts/real-opencode-cli-smoke.mjs --model YOUR_PROVIDER/YOUR_MODEL --prompt "Reply with OK only."
 ```
 
-如果本机 OpenCode 当前解析到的 npm 包不是本仓库，可以显式启用临时替换：
+脚本调用 `opencode run --standalone --print-logs --format json`，使用 `OPENCODE_LOG_LEVEL=debug`。检测到 V1 时在调用模型前退出。`--opencode PATH` 或 `OPENCODE_CLI` 可指定已安装的 V2 二进制。
 
-```bash
-npm run build && node scripts/real-opencode-cli-smoke.mjs --use-temporary-link --model deepseek/deepseek-chat
-```
+## 自动检查
 
-`--use-temporary-link` 会在运行期间把已发现的 OpenCode package 解析路径临时替换为指向当前仓库的 symlink，并在结束后恢复原路径。默认不做这个替换。
+- 进程成功退出，stdout 存在 `step_finish`。
+- 没有该插件的加载失败日志。
+- 每个 step_finish 在新增 JSONL 中都有精确 sessionID/messageID 匹配且仅一条记录。
+- input、output + reasoning、reasoning、cache read/write 与 V2 输出一致。
+- 费用 drift 写入摘要，仅作为对照；`--fail-on-opencode-cost-drift` 可将差异作为失败。
 
-当前脚本会检查两类路径：
-
-- `~/.config/opencode/node_modules/opencode-token-tracker`
-- `~/.cache/opencode/packages/opencode-token-tracker@*/node_modules/opencode-token-tracker`
-
-这点很重要：OpenCode CLI 可能优先使用 cache package，即使 `~/.config/opencode/node_modules` 已经指向当前仓库，旧 cache package 仍可能被加载。
-
-## 验收内容
-
-脚本会执行真实：
-
-```bash
-opencode run --print-logs --log-level DEBUG --format json [--model ...] "<prompt>"
-```
-
-并检查：
-
-- `opencode` 进程退出码为 0
-- stdout 中存在 `step_finish`
-- stderr 中没有 `failed to load plugin ... opencode-token-tracker`
-- `~/.config/opencode/logs/token-tracker/tokens.jsonl` 新增匹配的 `tokens` 记录
-- debug 日志中出现 `type=tui.toast.show publishing`
-- 记录插件成本与 OpenCode stdout 成本的 drift
-
-价格 source of truth 以 provider 官网为准。OpenCode stdout 的 `cost` 只作为对照信号，因为 OpenCode 自身的定价表可能滞后于官网。
-
-如果需要把 OpenCode reported cost 当作临时 oracle，可以显式加：
-
-```bash
-npm run build && node scripts/real-opencode-cli-smoke.mjs --fail-on-opencode-cost-drift --model deepseek/deepseek-chat
-```
+`run` 不启动 TUI，因此不要求旧 `tui.toast.show` 日志。Toast 由 TUI/RPC 回归验证，并在真实交互终端补充确认：普通消息、预算警告、主子会话摘要，以及同一 server 的两个终端显示提示但 token 日志只有一份。
 
 ## 产物
 
-每次运行会写入：
+`dogfood-artifacts/<timestamp>/` 中保存 stdout.jsonl、stderr.log、token-log-delta.jsonl 和 summary.json，该目录已忽略。summary 的通过只代表 CLI 采集验收，不代表交互 TUI 已验收。
 
-```text
-dogfood-artifacts/<timestamp>/
-  stdout.jsonl
-  stderr.log
-  token-log-delta.jsonl
-  summary.json
-```
-
-该目录已加入 `.gitignore`。`summary.json` 是主要验收摘要，`stderr.log` 用于定位 OpenCode 插件加载器、provider、toast bus 等真实信号。
-
-## 环境变量
-
-- `OPENCODE_CLI`：指定 `opencode` 二进制路径
-- `OPENCODE_DOGFOOD_MODEL`：默认模型参数
-- `OPENCODE_DOGFOOD_PROMPT`：默认 prompt
-- `OPENCODE_DOGFOOD_TIMEOUT_MS`：超时时间，默认 120000
-- `OPENCODE_DOGFOOD_ARTIFACTS`：产物目录
+环境变量：`OPENCODE_CLI`、`OPENCODE_DOGFOOD_MODEL`、`OPENCODE_DOGFOOD_PROMPT`、`OPENCODE_DOGFOOD_TIMEOUT_MS`、`OPENCODE_DOGFOOD_ARTIFACTS`。完整参数见 `--help`。

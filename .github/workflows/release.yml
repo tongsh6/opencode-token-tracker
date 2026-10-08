@@ -29,6 +29,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Verify packed V2 plugin entrypoints
+        run: npm run test:package
+
       - name: Verify tag matches package.json version
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"

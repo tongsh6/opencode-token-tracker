@@ -3,13 +3,8 @@ import { spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
   statSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { homedir } from "node:os"
@@ -20,8 +15,6 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(SCRIPT_DIR, "..")
 const PACKAGE_JSON = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf-8"))
 const PACKAGE_NAME = PACKAGE_JSON.name
-const CONFIG_INSTALLED_PACKAGE = join(homedir(), ".config", "opencode", "node_modules", PACKAGE_NAME)
-const CACHE_PACKAGES_DIR = join(homedir(), ".cache", "opencode", "packages")
 const TOKEN_LOG = join(homedir(), ".config", "opencode", "logs", "token-tracker", "tokens.jsonl")
 const DEFAULT_ARTIFACT_ROOT = join(REPO_ROOT, "dogfood-artifacts")
 
@@ -32,8 +25,6 @@ function parseArgs(argv) {
     prompt: process.env.OPENCODE_DOGFOOD_PROMPT || "Reply with OK only.",
     timeoutMs: Number(process.env.OPENCODE_DOGFOOD_TIMEOUT_MS || "120000"),
     artifactsDir: process.env.OPENCODE_DOGFOOD_ARTIFACTS || DEFAULT_ARTIFACT_ROOT,
-    useTemporaryLink: false,
-    requireLinked: true,
     failOnOpencodeCostDrift: process.env.OPENCODE_DOGFOOD_FAIL_ON_OPENCODE_COST_DRIFT === "1",
   }
 
@@ -60,10 +51,6 @@ function parseArgs(argv) {
       opts.timeoutMs = Number(next())
     } else if (arg === "--artifacts-dir") {
       opts.artifactsDir = resolve(next())
-    } else if (arg === "--use-temporary-link") {
-      opts.useTemporaryLink = true
-    } else if (arg === "--no-require-linked") {
-      opts.requireLinked = false
     } else if (arg === "--allow-cost-drift") {
       opts.failOnOpencodeCostDrift = false
     } else if (arg === "--fail-on-opencode-cost-drift") {
@@ -87,7 +74,7 @@ Runs a real local opencode CLI request and verifies that ${PACKAGE_NAME} works
 as the installed OpenCode plugin.
 
 Usage:
-  npm run dogfood:opencode -- [options]
+  node scripts/real-opencode-cli-smoke.mjs [options]
 
 Options:
   --opencode PATH          Use a specific opencode CLI binary
@@ -95,9 +82,6 @@ Options:
   --prompt TEXT            Prompt passed to opencode run
   --timeout-ms NUMBER      Child process timeout, default 120000
   --artifacts-dir DIR      Directory for stdout/stderr/summary artifacts
-  --use-temporary-link     Temporarily replace discovered OpenCode package paths
-                           with symlinks to this repo, then restore them
-  --no-require-linked      Do not require discovered package paths to resolve to this repo
   --allow-cost-drift       Keep OpenCode reported cost drift informational (default)
   --fail-on-opencode-cost-drift
                            Treat OpenCode reported cost drift as a failure
@@ -134,84 +118,6 @@ function runCommand(command, args, options = {}) {
     maxBuffer: 50 * 1024 * 1024,
     ...options,
   })
-}
-
-function discoverInstalledPackagePaths() {
-  const paths = [CONFIG_INSTALLED_PACKAGE]
-
-  if (existsSync(CACHE_PACKAGES_DIR)) {
-    for (const entry of readdirSync(CACHE_PACKAGES_DIR)) {
-      if (entry === `${PACKAGE_NAME}@latest` || entry.startsWith(`${PACKAGE_NAME}@`)) {
-        paths.push(join(CACHE_PACKAGES_DIR, entry, "node_modules", PACKAGE_NAME))
-      }
-    }
-  }
-
-  return Array.from(new Set(paths))
-}
-
-function getPackagePathStates() {
-  return discoverInstalledPackagePaths().map((path) => ({
-    path,
-    exists: existsSync(path),
-    realpath: existsSync(path) ? realpathSync(path) : undefined,
-  }))
-}
-
-function ensureInstalledPackagesPointToRepo() {
-  const repoRealpath = realpathSync(REPO_ROOT)
-  const states = getPackagePathStates()
-  const existing = states.filter((state) => state.exists)
-  if (existing.length === 0) {
-    throw new Error(`No discovered OpenCode package path exists for ${PACKAGE_NAME}`)
-  }
-
-  const mismatched = existing.filter((state) => state.realpath !== repoRealpath)
-  if (mismatched.length > 0) {
-    const details = mismatched.map((state) => `${state.path} -> ${state.realpath}`).join("; ")
-    throw new Error(`Discovered OpenCode package paths do not all resolve to ${REPO_ROOT}: ${details}`)
-  }
-}
-
-function activateTemporaryLinkAt(packagePath, createParent) {
-  const parent = dirname(packagePath)
-  if (!existsSync(parent)) {
-    if (!createParent) return () => {}
-    mkdirSync(parent, { recursive: true })
-  }
-  const repoRealpath = realpathSync(REPO_ROOT)
-  const installedRealpath = existsSync(packagePath) ? realpathSync(packagePath) : undefined
-  if (installedRealpath === repoRealpath) {
-    return () => {}
-  }
-
-  const backup = `${packagePath}.dogfood-backup-${Date.now()}`
-  let hadExisting = false
-  if (existsSync(packagePath)) {
-    renameSync(packagePath, backup)
-    hadExisting = true
-  }
-
-  symlinkSync(REPO_ROOT, packagePath, "dir")
-
-  return () => {
-    if (existsSync(packagePath)) {
-      rmSync(packagePath, { recursive: true, force: true })
-    }
-    if (hadExisting) {
-      renameSync(backup, packagePath)
-    }
-  }
-}
-
-function activateTemporaryLinks() {
-  const paths = discoverInstalledPackagePaths()
-  const restoreFns = paths.map((path) => activateTemporaryLinkAt(path, path === CONFIG_INSTALLED_PACKAGE))
-  return () => {
-    for (const restore of [...restoreFns].reverse()) {
-      restore()
-    }
-  }
 }
 
 function makeArtifactDir(root) {
@@ -252,7 +158,7 @@ function getLastStepFinish(records) {
   return records.filter((record) => record?.type === "step_finish").at(-1)
 }
 
-function findMatchingTokenRecord(records, stepFinish, startedAt) {
+function findMatchingTokenRecord(records, stepFinish) {
   const tokenRecords = records.filter((record) => record?.type === "tokens")
   const sessionID = stepFinish?.sessionID || stepFinish?.part?.sessionID
   const messageID = stepFinish?.part?.messageID
@@ -262,15 +168,11 @@ function findMatchingTokenRecord(records, stepFinish, startedAt) {
     if (exact) return exact
   }
 
-  return tokenRecords.find((record) => typeof record._ts === "number" && record._ts >= startedAt)
+  return undefined
 }
 
 function hasPluginLoadError(stderr) {
   return /failed to load plugin[^\n]*opencode-token-tracker|opencode-token-tracker[^\n]*failed to load plugin/i.test(stderr)
-}
-
-function hasToastSignal(stderr) {
-  return /type=tui\.toast\.show publishing/.test(stderr)
 }
 
 function compareCosts(opencodeCost, pluginCost) {
@@ -296,7 +198,6 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2))
   const opencode = findOpencode(opts.opencode)
   const artifactDir = makeArtifactDir(opts.artifactsDir)
-  let restore = () => {}
 
   const summary = {
     packageName: PACKAGE_NAME,
@@ -305,7 +206,6 @@ async function main() {
     opencode,
     command: [],
     artifactDir,
-    packagePathStatesBefore: getPackagePathStates(),
     tokenLog: TOKEN_LOG,
     assertions: [],
   }
@@ -314,24 +214,20 @@ async function main() {
     const version = runCommand(opencode, ["--version"])
     summary.opencodeVersion = version.stdout.trim() || version.stderr.trim()
 
-    if (opts.useTemporaryLink) {
-      restore = activateTemporaryLinks()
+    const match = summary.opencodeVersion.match(/(?:^|\s)v?(\d+)\.(\d+)\.(\d+)/)
+    if (version.status !== 0 || !match || Number(match[1]) !== 2 || (Number(match[2]) === 0 && Number(match[3]) < 25)) {
+      throw new Error("此验收需要 OpenCode >= 2.0.25 且 < 3；请先准备好 V2 并配置本地插件。脚本不会安装或升级 OpenCode。")
     }
-    if (opts.requireLinked) {
-      ensureInstalledPackagesPointToRepo()
-    }
-    summary.packagePathStatesDuring = getPackagePathStates()
 
     const beforeSize = getFileSize(TOKEN_LOG)
-    const startedAt = Date.now()
-    const args = ["run", "--print-logs", "--log-level", "DEBUG", "--format", "json"]
+    const args = ["run", "--standalone", "--print-logs", "--format", "json"]
     if (opts.model) {
       args.push("--model", opts.model)
     }
     args.push(opts.prompt)
     summary.command = [opencode, ...args]
 
-    const run = runCommand(opencode, args, { timeout: opts.timeoutMs })
+    const run = runCommand(opencode, args, { timeout: opts.timeoutMs, env: { ...process.env, OPENCODE_LOG_LEVEL: "debug" } })
     const stdout = run.stdout || ""
     const stderr = run.stderr || ""
     const appendedLog = readAppended(TOKEN_LOG, beforeSize)
@@ -343,14 +239,28 @@ async function main() {
     const stdoutRecords = parseJsonLines(stdout)
     const tokenRecords = parseJsonLines(appendedLog)
     const stepFinish = getLastStepFinish(stdoutRecords)
-    const tokenRecord = findMatchingTokenRecord(tokenRecords, stepFinish, startedAt)
+    const tokenRecord = findMatchingTokenRecord(tokenRecords, stepFinish)
     const costCheck = compareCosts(stepFinish?.part?.cost, tokenRecord?.cost)
     const failures = summarizeFailure(run)
 
     if (hasPluginLoadError(stderr)) failures.push("plugin load error was reported for opencode-token-tracker")
     if (!stepFinish) failures.push("stdout did not contain a step_finish event")
     if (!tokenRecord) failures.push("token log delta did not contain a matching tokens record")
-    if (!hasToastSignal(stderr)) failures.push("debug log did not contain tui.toast.show publishing")
+    for (const step of stdoutRecords.filter(record => record?.type === "step_finish")) {
+      const record = findMatchingTokenRecord(tokenRecords, step)
+      const expected = step.part?.tokens
+      if (!record) {
+        failures.push(`没有精确匹配 ${step.sessionID}/${step.part?.messageID} 的 token 记录`)
+        continue
+      }
+      const copies = tokenRecords.filter(item => item.type === "tokens" && item.sessionId === record.sessionId && item.messageId === record.messageId)
+      if (copies.length !== 1) failures.push(`消息 ${record.messageId} 重复记账`)
+      if (expected && (record.input !== expected.input || record.output !== expected.output + expected.reasoning
+        || record.reasoning !== expected.reasoning || record.cacheRead !== expected.cache.read || record.cacheWrite !== expected.cache.write)) {
+        failures.push(`消息 ${record.messageId} 的 V2 token 映射不一致`)
+      }
+    }
+    summary.toastVerification = "not-applicable: opencode run 不启动 TUI；Toast 由 TUI/RPC 回归和交互验收验证"
     if (costCheck.comparable && !costCheck.ok) {
       const driftMessage = `plugin cost ${tokenRecord.cost} differs from OpenCode cost ${stepFinish.part.cost}; drift ${costCheck.drift} > tolerance ${costCheck.tolerance}`
       if (opts.failOnOpencodeCostDrift) {
@@ -388,18 +298,10 @@ async function main() {
     const message = err instanceof Error ? err.message : String(err)
     summary.result = "fail"
     summary.assertions = [message]
-    summary.packagePathStatesDuring = getPackagePathStates()
     writeFileSync(join(artifactDir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`)
     console.error(message)
     console.error(`Artifacts: ${artifactDir}`)
     process.exitCode = 1
-  } finally {
-    try {
-      restore()
-    } catch (err) {
-      console.error(`Failed to restore temporary plugin link: ${err instanceof Error ? err.message : String(err)}`)
-      process.exitCode = 1
-    }
   }
 }
 

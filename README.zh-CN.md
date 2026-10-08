@@ -36,6 +36,23 @@
 
 ## 安装
 
+### 版本兼容
+
+`2.0.0` 面向 **OpenCode >= 2.0.25 且 < 3**，使用官方 `@opencode/plugin@2.0.25`。
+OpenCode V1 用户应保留 `opencode-token-tracker@1.8.0` 和 V1 的 `plugin` 配置。
+独立统计 CLI 继续支持 Node.js >= 18；插件由 OpenCode 自身的 V2 运行时加载。
+
+现有 `token-tracker.json`、`tokens.jsonl`、`sessions.jsonl` 可直接沿用，不重算历史费用。
+服务端负责记账，单独的 `./tui` 入口通过 RPC 显示提示，TUI 不写 token 日志。
+包的 TUI 入口会自动加载；连接远程服务时，还需在本地 `cli.json` 的 `plugins` 中配置同一包。日志保存在服务端主机。
+
+采集范围包括带用量的 assistant step 完成/失败，以及 compaction 完成/失败。
+V2 的可见输出与 reasoning 合并写入历史日志的 `output`，`reasoning` 字段保留用于明细，统计时不要再次相加。
+累计的 `session.usage.updated` 不再单独计费，避免重复。当前 SDK 没有公开标题生成的逐次用量事件，因此不计入标题生成费用。
+请求早于插件加载且消息元数据恢复失败时，以 `unknown` 保留用量并使用默认价格；缺少型号的失败 compaction 同样处理。
+
+迁移与验收细节见 [V2 适配说明](context/tech/opencode-v2-migration.md)。
+
 ### 插件
 
 在 OpenCode 配置文件 `~/.config/opencode/opencode.json` 中添加插件：
@@ -43,7 +60,7 @@
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-token-tracker"]
+  "plugins": ["opencode-token-tracker@2.0.0"]
 }
 ```
 
@@ -518,10 +535,10 @@ npm run build
 npm test
 
 # 真实本机 OpenCode CLI dogfood
-node scripts/real-opencode-cli-smoke.mjs --use-temporary-link --model deepseek/deepseek-chat
+node scripts/real-opencode-cli-smoke.mjs --model YOUR_PROVIDER/YOUR_MODEL
 ```
 
-dogfood 脚本只作为仓库内开发工具，不作为 npm 包命令发布。它验证真实本机 `opencode run` 路径，包括 OpenCode 的 cache package 目录；运行结束后会恢复临时 package link。
+dogfood 脚本要求已配置好的 OpenCode V2，精确核对 session/message 与 V2 token 字段，不替换 package link。无界面 run 不启动 TUI，Toast 需要单独交互验收，详见 [dogfood 配置](context/tech/real-opencode-cli-dogfood.md)。
 
 ## License
 
@@ -530,5 +547,5 @@ MIT © [tongsh6](https://github.com/tongsh6)
 ## Related
 
 - [OpenCode](https://opencode.ai) - AI coding assistant
-- [OpenCode Plugins](https://opencode.ai/docs/plugins) - 插件文档
+- [OpenCode Plugins](https://opencode.ai/v2/docs/build/plugins) - 插件文档
 - [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) - OpenCode 增强插件
