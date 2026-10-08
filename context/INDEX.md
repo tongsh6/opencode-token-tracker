@@ -9,6 +9,7 @@
 | [../walkthrough.md](../walkthrough.md) | 从安装、真实请求、统计、配置到 dogfood 的端到端使用路径 |
 | [tech/REPO_SNAPSHOT.md](tech/REPO_SNAPSHOT.md) | 仓库结构、技术栈、模块边界、常用命令快照 |
 | [tech/conventions/typescript.md](tech/conventions/typescript.md) | TypeScript 风格与实现约定 |
+| [tech/opencode-v2-migration.md](tech/opencode-v2-migration.md) | 2.0.0 的 V2 契约、事件口径、迁移与验证边界 |
 | [tech/real-opencode-cli-dogfood.md](tech/real-opencode-cli-dogfood.md) | 基于本机真实 OpenCode CLI 的插件 dogfood 验收机制 |
 | [business/INDEX.md](business/INDEX.md) | 业务目标、核心术语、语义口径入口 |
 | [experience/INDEX.md](experience/INDEX.md) | 经验库入口与索引 |

@@ -56,6 +56,6 @@
 
 ## 8) 项目特定约束
 
-- 除 `@opencode-ai/plugin` 外不新增运行时依赖
+- 除 V2 官方 SDK `@opencode/plugin` 外不新增运行时依赖
 - `dist/` 为构建产物，不直接编辑
 - 定价数据、共享类型和工具函数统一在 `lib/shared.ts` 维护

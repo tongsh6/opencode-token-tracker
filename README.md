@@ -36,6 +36,23 @@ If you are building AI-assisted engineering workflows, we strongly recommend ado
 
 ## Installation
 
+### Compatibility
+
+Version 2.0.0 targets **OpenCode >= 2.0.25 and < 3**, using `@opencode/plugin@2.0.25`.
+OpenCode V1 users must keep `opencode-token-tracker@1.8.0` with the V1 `plugin` setting.
+Node.js >= 18 remains supported for the standalone statistics CLI; OpenCode runs the plugin in its own V2 runtime.
+
+Existing `token-tracker.json`, `tokens.jsonl`, and `sessions.jsonl` remain compatible. Historical costs are not recalculated.
+The server records usage; the separate `./tui` entry displays RPC notifications and never writes token logs.
+The TUI entry loads automatically alongside the package. For remote servers, configure the same package in the local `cli.json` under `plugins` as well.
+
+V2 records completed/failed assistant steps with reported usage, plus compaction completion/failure usage.
+Visible output and reasoning are combined into the existing log's `output`; `reasoning` remains a separate informational field and must not be added again.
+Cumulative `session.usage.updated` events are ignored to prevent double counting. Title generation has no public per-request usage event in this SDK and is not included.
+If a request starts before plugin loading and its message metadata cannot be recovered, usage is saved under `unknown` with fallback pricing.
+
+See the [migration and validation notes](context/tech/opencode-v2-migration.md).
+
 ### Plugin
 
 Add to your OpenCode config file (`~/.config/opencode/opencode.json`):
@@ -43,7 +60,7 @@ Add to your OpenCode config file (`~/.config/opencode/opencode.json`):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-token-tracker"]
+  "plugins": ["opencode-token-tracker@2.0.0"]
 }
 ```
 
@@ -514,10 +531,10 @@ npm run build
 npm test
 
 # Real local OpenCode CLI dogfood
-node scripts/real-opencode-cli-smoke.mjs --use-temporary-link --model deepseek/deepseek-chat
+node scripts/real-opencode-cli-smoke.mjs --model YOUR_PROVIDER/YOUR_MODEL
 ```
 
-The dogfood script is repo-only and is not published as an npm command. It verifies the real local `opencode run` path, including OpenCode's cache package directory, and restores any temporary package links after the run.
+The repo-only dogfood script requires an already configured OpenCode V2 installation. It checks exact session/message matches and V2 token counts, without changing package links. Headless runs do not start the TUI; validate Toasts separately in an interactive terminal. See [dogfood setup](context/tech/real-opencode-cli-dogfood.md).
 
 ## License
 
@@ -526,5 +543,5 @@ MIT © [tongsh6](https://github.com/tongsh6)
 ## Related
 
 - [OpenCode](https://opencode.ai) - The AI coding assistant
-- [OpenCode Plugins](https://opencode.ai/docs/plugins) - Plugin documentation
+- [OpenCode Plugins](https://opencode.ai/v2/docs/build/plugins) - Plugin documentation
 - [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) - OpenCode enhancement plugin

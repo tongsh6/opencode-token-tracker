@@ -96,7 +96,7 @@ npm link
 2. Add to your OpenCode config (`~/.config/opencode/opencode.json`):
    ```json
    {
-     "plugin": ["opencode-token-tracker"]
+     "plugins": ["opencode-token-tracker@2.0.0"]
    }
    ```
 
@@ -107,7 +107,7 @@ npm link
 - TypeScript with strict mode
 - ES2022 target
 - ESM modules
-- No external runtime dependencies (except @opencode-ai/plugin)
+- No external runtime dependencies (except @opencode/plugin)
 
 ## Pull Request Guidelines
 

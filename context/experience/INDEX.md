@@ -27,3 +27,4 @@
 | 2026-10-05 | [lessons/2026-10-05-budget-period-rollover.md](lessons/2026-10-05-budget-period-rollover.md) | 周期重载须排除当前待累计消息，日志和预算须共用时间戳 |
 | 2026-10-05 | [lessons/2026-10-05-session-rollup-events.md](lessons/2026-10-05-session-rollup-events.md) | 会话归并须验证事件顺序、重启恢复和父会话自身无消耗的边界 |
 | 2026-10-05 | [lessons/2026-10-05-pricing-audit-scope.md](lessons/2026-10-05-pricing-audit-scope.md) | 内置来源不等于价格有效，局部核价必须保留逐型号日期与匹配边界 |
+| 2026-10-08 | [lessons/2026-10-08-opencode-v2-contracts.md](lessons/2026-10-08-opencode-v2-contracts.md) | V2 发布包契约、reasoning 计费、服务端/TUI 分离和加载验收 |
